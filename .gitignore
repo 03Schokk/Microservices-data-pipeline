@@ -1,0 +1,9 @@
+/venv/*
+/logs/*
+/mongodb/*
+/neo4j/*
+/postgresql/*
+/redis/*
+/elasticsearch/*
+/scripts/report.txt
+/подсказки/промт.txt

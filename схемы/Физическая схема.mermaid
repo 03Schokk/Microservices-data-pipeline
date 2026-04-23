@@ -1,0 +1,86 @@
+graph TB
+    subgraph NEO4J["NEO4J - Посещения"]
+        style NEO4J fill:#D4E6F1,stroke:#3A6EA5,stroke-width:2px
+        direction TB
+        
+        N_StudentGroup["(:StudentGroup {id: 'grp-001', name: 'БСБО-01-23'})"]
+        
+        N_Student["(:Student {id: 'std-001', student_card_number: '2024-0001'})"]
+        
+        N_Lecture["(:Lecture {id: 'lec-001', type: 'Лекция', title: 'Введение в базы данных'})"]
+        
+        N_Schedule["(:Schedule {id: 'sch-001', date: '2026-04-01', classroom: 'A-201', time: '10:00'})"]
+        
+        N_StudentGroup ==>|"(:StudentGroup)-[:HAS_STUDENT]->(:Student)"| N_Student
+        N_StudentGroup ==>|"(:StudentGroup)-[:HAS_SCHEDULE]->(:Schedule)"| N_Schedule
+        N_Schedule ==>|"(:Schedule)-[:PART_OF]->(:Lecture)"| N_Lecture
+    end
+
+    subgraph MONGODB["MONGODB - Иерархия вуза"]
+        style MONGODB fill:#F9E79F,stroke:#3A6EA5,stroke-width:2px
+        direction TB
+        
+        M_University["{<br/>_id: UUID,<br/>name: STRING,<br/>short_name: STRING,<br/>address: STRING,<br/>website: STRING,<br/>founded_year: INT,<br/>institutes: [<br/>{<br/>_id: UUID,<br/>university_id: UUID,<br/>name: STRING,<br/>short_name: STRING,<br/>dean: STRING,<br/>departments: [<br/>{<br/>_id: UUID,<br/>institute_id: UUID,<br/>name: STRING,<br/>short_name: STRING,<br/>head: STRING,<br/>room: STRING,<br/>specialties: ARRAY<br/>}<br/>]<br/>}<br/>]<br/>}"]
+    end
+
+    subgraph REDIS["REDIS - Кэш по студентам"]
+        style REDIS fill:#FAD7A0,stroke:#3A6EA5,stroke-width:2px
+        direction TB
+        
+        R_Student["<b>Тип:</b> Hash<br/><b>Ключ:</b> student_card_number<br/><br/>{<br/>id: UUID,<br/>first_name: STRING,<br/>last_name: STRING,<br/>patronymic: STRING,<br/>email: STRING,<br/>phone: STRING,<br/>student_card_number: STRING,<br/>group_id: UUID,<br/>enrollment_date: STRING,<br/>status: STRING<br/>}<br/>"]
+    end
+
+    subgraph ELASTIC["ELASTICSEARCH - Материал"]
+        style ELASTIC fill:#C39BD3,stroke:#3A6EA5,stroke-width:2px
+        direction TB
+        
+        E_Materials["{<br/>id: UUID,<br/>lecture_id: UUID,<br/>title: STRING,<br/>content_text: TEXT,<br/>content_type: STRING,<br/>file_url: STRING,<br/>course_name: STRING,<br/>specialty_name: STRING,<br/>metadata: JSON,<br/>created_at: TIMESTAMP<br/>}<br/>"]
+    end
+
+    subgraph POSTGRES["POSTGRESQL - Главная БД"]
+        style POSTGRES fill:#A9DFBF,stroke:#3A6EA5,stroke-width:2px
+        direction TB
+        
+        PG_University["<b>university</b><br/>─────────────────<br/>id: UUID PK<br/>name: VARCHAR(500)<br/>short_name: VARCHAR(100)<br/>address: TEXT<br/>website: VARCHAR(255)<br/>founded_year: INT<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Institute["<b>institute</b><br/>─────────────────<br/>id: UUID PK<br/>university_id: UUID FK<br/>name: VARCHAR(500)<br/>short_name: VARCHAR(100)<br/>dean: VARCHAR(300)<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Department["<b>department</b><br/>─────────────────<br/>id: UUID PK<br/>institute_id: UUID FK<br/>name: VARCHAR(500)<br/>short_name: VARCHAR(100)<br/>head: VARCHAR(300)<br/>room: VARCHAR(50)<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Specialty["<b>specialty</b><br/>─────────────────<br/>id: UUID PK<br/>name: VARCHAR(500)<br/>code: VARCHAR(20)<br/>degree_level: VARCHAR(20)<br/>duration_years: INT<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_DeptSpec["<b>department_specialties</b><br/>─────────────────<br/>id: UUID PK<br/>department_id: UUID FK<br/>specialty_id: UUID FK<br/>is_primary: BOOLEAN<br/>created_at: TIMESTAMP"]
+        
+        PG_LectureCourse["<b>lecture_course</b><br/>─────────────────<br/>id: UUID PK<br/>specialty_id: UUID FK<br/>name: VARCHAR(500)<br/>description: TEXT<br/>semester: INT<br/>total_hours: INT<br/>lecture_hours: INT<br/>practice_hours: INT<br/>lab_hours: INT<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Lecture["<b>lecture</b><br/>─────────────────<br/>id: UUID PK<br/>course_id: UUID FK<br/>title: VARCHAR(500)<br/>annotation: TEXT<br/>lecture_type: VARCHAR(20)<br/>computer_type: VARCHAR(100)<br/>order_number: INT<br/>duration_minutes: INT<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_LectureMaterial["<b>lecture_material</b><br/>─────────────────<br/>id: UUID PK<br/>lecture_id: UUID FK<br/>content_type: VARCHAR(50)<br/>title: VARCHAR(500)<br/>content_text: TEXT<br/>file_url: VARCHAR(1000)<br/>metadata: JSONB<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_StudentGroup["<b>student_group</b><br/>─────────────────<br/>id: UUID PK<br/>specialty_id: UUID FK<br/>name: VARCHAR(50)<br/>enrollment_year: INT<br/>curator: VARCHAR(300)<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Student["<b>student</b><br/>─────────────────<br/>id: UUID PK<br/>group_id: UUID FK<br/>first_name: VARCHAR(100)<br/>last_name: VARCHAR(100)<br/>patronymic: VARCHAR(100)<br/>email: VARCHAR(255)<br/>phone: VARCHAR(20)<br/>student_card_number: VARCHAR(20)<br/>enrollment_date: DATE<br/>status: VARCHAR(20)<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Schedule["<b>schedule</b><br/>─────────────────<br/>id: UUID PK<br/>lecture_id: UUID FK<br/>group_id: UUID FK<br/>scheduled_date: DATE<br/>week_start_date: DATE<br/>start_time: TIME<br/>end_time: TIME<br/>classroom: VARCHAR(50)<br/>teacher_name: VARCHAR(300)<br/>status: VARCHAR(20)<br/>created_at: TIMESTAMP<br/>updated_at: TIMESTAMP"]
+        
+        PG_Attendance["<b>attendance</b><br/>─────────────────<br/>id: UUID PK<br/>week_start_date: DATE PK<br/>schedule_id: UUID FK<br/>student_id: UUID FK<br/>marked_at: TIMESTAMP<br/>marked_by: VARCHAR(300)<br/>note: VARCHAR(500)<br/>created_at: TIMESTAMP"]
+        
+        PG_University ==>|"1:N"| PG_Institute
+        PG_Institute ==>|"1:N"| PG_Department
+        PG_Department ==>|"M:N"| PG_DeptSpec
+        PG_DeptSpec ==>|"M:N"| PG_Specialty
+        PG_Specialty ==>|"1:N"| PG_LectureCourse
+        PG_LectureCourse ==>|"1:N"| PG_Lecture
+        PG_Lecture ==>|"1:N"| PG_LectureMaterial
+        PG_Specialty ==>|"1:N"| PG_StudentGroup
+        PG_StudentGroup ==>|"1:N"| PG_Student
+        PG_Lecture ==>|"1:N"| PG_Schedule
+        PG_StudentGroup ==>|"1:N"| PG_Schedule
+        PG_Schedule ==>|"1:N"| PG_Attendance
+        PG_Student ==>|"1:N"| PG_Attendance
+    end
+
+    POSTGRES ==>|"синхронизация студентов, их групп, посещений и лекций"| NEO4J
+    POSTGRES ==>|"денормализация иерархии вуза"| MONGODB
+    POSTGRES ==>|"индексация лекций"| ELASTIC
+    POSTGRES ==>|"Кэш по студентам"| REDIS
