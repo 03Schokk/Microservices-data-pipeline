@@ -6,9 +6,7 @@
 
 if (-not $Term) { $Term = Read-Host "Введите термин" }
 if (-not $StartDate) { $StartDate = "2024-09-01" }
-if (-not $EndDate) { $EndDate = "2024-12-24" }
-
-Write-Host "Искомый термин: $Term"
+if (-not $EndDate) { $EndDate = "2026-12-24" }
 
 # 1. Получение токена
 $tokenBody = @{

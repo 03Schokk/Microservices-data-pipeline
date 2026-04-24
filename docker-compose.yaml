@@ -138,8 +138,6 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-    environment:
-      - LAB1_SERVICE_URL=https://lab1-nginx:443
     volumes:
       - certs_data:/certs:ro
     networks:
@@ -147,14 +145,14 @@ services:
     depends_on:
       cert-generator:
         condition: service_completed_successfully
-      lab1-nginx:
+      nginx:
         condition: service_started
 
-  # -------------------- Lab1 Service --------------------
+  # -------------------- Lab Service --------------------
   # Nginx с mTLS
-  lab1-nginx:
+  nginx:
     image: nginx:alpine
-    container_name: lab1-nginx
+    container_name: nginx
     restart: unless-stopped
     ports:
       - "8443:443"
@@ -168,13 +166,105 @@ services:
         condition: service_completed_successfully
       lab1_service:
         condition: service_started
+      lab2_service:
+        condition: service_started
+      lab3_service:
+        condition: service_started
 
   lab1_service:
-    build: ./lab1_service
+    build:
+      context: .
+      dockerfile: ./lab1_service/dockerfile
     container_name: lab1-service
     restart: unless-stopped
     expose:
       - "8001" # порты наружу можно не пробрасывать, только внутренняя сеть
+    environment:
+      - POSTGRES_HOST=postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_USER=admin
+      - MONGO_PASSWORD=admin123
+      - MONGO_DB=testdb
+      - NEO4J_HOST=neo4j
+      - NEO4J_PORT=7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password123
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+      - ES_USER=elastic
+      - ES_PASSWORD=elastic_pass123
+    networks:
+      - data-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  lab2_service:
+    build:
+      context: .
+      dockerfile: ./lab2_service/dockerfile
+    container_name: lab2-service
+    restart: unless-stopped
+    expose:
+      - "8002" # порты наружу можно не пробрасывать, только внутренняя сеть
+    environment:
+      - POSTGRES_HOST=postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_USER=admin
+      - MONGO_PASSWORD=admin123
+      - MONGO_DB=testdb
+      - NEO4J_HOST=neo4j
+      - NEO4J_PORT=7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password123
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+      - ES_USER=elastic
+      - ES_PASSWORD=elastic_pass123
+    networks:
+      - data-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  lab3_service:
+    build:
+      context: .
+      dockerfile: ./lab3_service/dockerfile
+    container_name: lab3-service
+    restart: unless-stopped
+    expose:
+      - "8003" # порты наружу можно не пробрасывать, только внутренняя сеть
     environment:
       - POSTGRES_HOST=postgresql
       - POSTGRES_PORT=5432

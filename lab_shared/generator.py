@@ -1,5 +1,7 @@
 """
-lab1_service - generator.py
+lab123_service - generator.py
+
+Генерирует несколько семестров (осень 2024 - весна 2026)
 """
 
 import uuid, random, json, time
@@ -11,6 +13,7 @@ import redis
 import pymongo
 from neo4j import GraphDatabase
 from elasticsearch import Elasticsearch
+from elasticsearch.helpers import bulk
 
 from db_config import (
     POSTGRES_CONFIG, REDIS_CONFIG, MONGO_CONFIG,
@@ -177,6 +180,7 @@ def generate_department_specialties(department_ids, specialty_ids):
     return dept_spec
 
 def generate_lecture_courses(specialty_ids):
+    """Генерирует курсы для семестров 1-6"""
     courses = []
     course_names = [
         'Базы данных', 'Алгоритмы и структуры данных', 'Операционные системы',
@@ -185,7 +189,7 @@ def generate_lecture_courses(specialty_ids):
         'Криптография', 'Тестирование ПО', 'DevOps практики', 'Облачные вычисления'
     ]
     for spec_id in specialty_ids:
-        for semester in range(1, 8, 2):
+        for semester in range(1, 7):
             for course_name in random.sample(course_names, k=2):
                 courses.append({
                     'id': uuid.uuid4(),
@@ -213,7 +217,7 @@ def generate_lectures(course_ids):
                 'lecture_type': lecture_type,
                 'computer_type': random.choice(['Требуется проектор', 'Дополнительная техника не требуется']) if lecture_type == 'Лекция' else random.choice(['Требуется компьютерный класс с ОС Windows', 'Требуется компьютерный класс с ОС Linux', 'Требуется проектор', 'Дополнительная техника не требуется']),
                 'order_number': i,
-                'duration_minutes': 90
+                'duration_minutes': 90  # 2 академических часа (90 минут)
             })
     return lectures
 
@@ -268,23 +272,23 @@ def generate_students(group_ids):
         })
     return students
 
-def generate_schedules(lecture_ids, group_ids):
+def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids):
+    """Генерирует расписание для одного семестра (осень/весна)."""
     schedules = []
-    start_date = date(2024, 9, 1)
-    end_date = date(2024, 12, 24)
     current_date = start_date
     while current_date <= end_date:
+        # праздники не учитываются
         for lecture_id in random.sample(lecture_ids, k=min(20, len(lecture_ids))):
             for group_id in random.sample(group_ids, k=min(5, len(group_ids))):
                 if random.random() > 0.3:
                     start_time = datetime.strptime(f"{random.randint(9, 17)}:{random.choice(['00', '30'])}", "%H:%M").time()
-                    end_time = datetime.strptime(f"{start_time.hour + 1}:{start_time.minute}", "%H:%M").time()
+                    end_time = (datetime.combine(current_date, start_time) + timedelta(minutes=90)).time()
                     schedules.append({
                         'id': uuid.uuid4(),
                         'lecture_id': lecture_id,
                         'group_id': group_id,
                         'scheduled_date': current_date,
-                        'week_start_date': current_date,
+                        'week_start_date': current_date,  # упрощённо – начало недели совпадает с датой
                         'start_time': start_time,
                         'end_time': end_time,
                         'classroom': f'{random.choice(["А", "Б", "В", "Г", "Д"])}-{random.randint(100, 500)}',
@@ -529,7 +533,7 @@ def create_tables_postgresql():
 
     # Партиции
     start_date = date(2024, 1, 1)
-    end_date = date(2024, 12, 24)
+    end_date = date(2026, 12, 24)
     current = start_date
     while current <= end_date:
         next_month = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -697,37 +701,60 @@ def fill_mongodb(data):
 def fill_neo4j(data):
     driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
     with driver.session() as session:
-        for group in data['student_groups']:
-            session.run("CREATE (g:StudentGroup {id: $id, name: $name})", id=str(group['id']), name=group['name'])
-        for student in data['students']:
+        # Группы
+        groups_params = [{"id": str(g['id']), "name": g['name']} for g in data['student_groups']]
+        session.run(
+            "UNWIND $groups AS g CREATE (:StudentGroup {id: g.id, name: g.name})",
+            groups=groups_params
+        )
+
+        # Студенты
+        students_params = [
+            {"id": str(s['id']), "card": s['student_card_number'], "group_id": str(s['group_id'])}
+            for s in data['students']
+        ]
+        session.run(
+            "UNWIND $students AS s "
+            "MATCH (g:StudentGroup {id: s.group_id}) "
+            "CREATE (st:Student {id: s.id, student_card_number: s.card}) "
+            "CREATE (g)-[:HAS_STUDENT]->(st)",
+            students=students_params
+        )
+
+        # Лекции
+        lectures_params = [
+            {"id": str(l['id']), "type": l['lecture_type'], "title": l['title']}
+            for l in data['lectures']
+        ]
+        session.run(
+            "UNWIND $lectures AS l CREATE (:Lecture {id: l.id, type: l.type, title: l.title})",
+            lectures=lectures_params
+        )
+
+        # Расписания
+        schedules_params = [
+            {
+                "id": str(sch['id']),
+                "group_id": str(sch['group_id']),
+                "lecture_id": str(sch['lecture_id']),
+                "date": sch['scheduled_date'].isoformat(),
+                "classroom": sch['classroom'],
+                "time": sch['start_time'].isoformat()
+            }
+            for sch in data['schedules']
+        ]
+        # Выполняем частями, чтобы не перегружать память
+        batch_size = 500
+        for i in range(0, len(schedules_params), batch_size):
+            batch = schedules_params[i:i+batch_size]
             session.run(
-                "MATCH (g:StudentGroup {id: $group_id}) "
-                "CREATE (s:Student {id: $id, student_card_number: $card}) "
-                "CREATE (g)-[:HAS_STUDENT]->(s)",
-                group_id=str(student['group_id']),
-                id=str(student['id']),
-                card=student['student_card_number']
-            )
-        for lecture in data['lectures']:
-            session.run(
-                "CREATE (l:Lecture {id: $id, type: $type, title: $title})",
-                id=str(lecture['id']),
-                type=lecture['lecture_type'],
-                title=lecture['title']
-            )
-        for schedule in data['schedules']:
-            session.run(
-                "MATCH (g:StudentGroup {id: $group_id}) "
-                "MATCH (l:Lecture {id: $lecture_id}) "
-                "CREATE (sch:Schedule {id: $id, date: $date, classroom: $classroom, time: $time}) "
-                "CREATE (g)-[:HAS_SCHEDULE]->(sch) "
-                "CREATE (sch)-[:PART_OF]->(l)",
-                group_id=str(schedule['group_id']),
-                lecture_id=str(schedule['lecture_id']),
-                id=str(schedule['id']),
-                date=schedule['scheduled_date'].isoformat(),
-                classroom=schedule['classroom'],
-                time=schedule['start_time'].isoformat()
+                "UNWIND $schedules AS sch "
+                "MATCH (g:StudentGroup {id: sch.group_id}) "
+                "MATCH (l:Lecture {id: sch.lecture_id}) "
+                "CREATE (sch_node:Schedule {id: sch.id, date: sch.date, classroom: sch.classroom, time: sch.time}) "
+                "CREATE (g)-[:HAS_SCHEDULE]->(sch_node) "
+                "CREATE (sch_node)-[:PART_OF]->(l)",
+                schedules=batch
             )
     driver.close()
 
@@ -785,6 +812,8 @@ def fill_elasticsearch(data):
     lectures_dict = {str(l['id']): l for l in data['lectures']}
     courses_dict = {str(c['id']): c for c in data['lecture_courses']}
     specialties_dict = {str(s['id']): s for s in data['specialties']}
+
+    actions = []
     for material in data['lecture_materials']:
         lecture = lectures_dict.get(str(material['lecture_id']))
         if not lecture:
@@ -793,27 +822,35 @@ def fill_elasticsearch(data):
         if not course:
             continue
         doc = {
-            'id': str(material['id']),
-            'lecture_id': str(material['lecture_id']),
-            'title': material['title'],
-            'content_text': material['content_text'],
-            'content_type': material['content_type'],
-            'file_url': material['file_url'],
-            'course_name': course['name'],
-            'specialty_name': specialties_dict.get(str(course['specialty_id']), {}).get('name', ''),
-            'metadata': material['metadata'],
-            'created_at': datetime.now().isoformat()
+            '_index': 'materials',
+            '_id': str(material['id']),
+            '_source': {
+                'id': str(material['id']),
+                'lecture_id': str(material['lecture_id']),
+                'title': material['title'],
+                'content_text': material['content_text'],
+                'content_type': material['content_type'],
+                'file_url': material['file_url'],
+                'course_name': course['name'],
+                'specialty_name': specialties_dict.get(str(course['specialty_id']), {}).get('name', ''),
+                'metadata': material['metadata'],
+                'created_at': datetime.now().isoformat()
+            }
         }
-        es.index(index='materials', id=str(material['id']), document=doc)
+        actions.append(doc)
+
+    if actions:
+        success, _ = bulk(es, actions, chunk_size=500, request_timeout=60)
+        print(f"Elasticsearch: проиндексировано {success} документов")
     es.indices.refresh(index='materials')
 
 def run_generation():
     wait_for_all_databases()
-    
     clear_databases()
     create_tables_postgresql()
     setup_elasticsearch()
 
+    # Генерация базовых сущностей
     data = {}
     data['universities'] = generate_universities()
     data['institutes'] = generate_institutes(data['universities'][0]['id'])
@@ -831,8 +868,41 @@ def run_generation():
     data['student_groups'] = generate_student_groups(specialty_ids)
     group_ids = [g['id'] for g in data['student_groups']]
     data['students'] = generate_students(group_ids)
-    data['schedules'] = generate_schedules(lecture_ids, group_ids)
-    data['attendance'] = generate_attendance(data['schedules'], data['students'])
+
+    # Настройка семестров: периоды и соответствующие номера семестров
+    semesters_config = [
+        ("Осень 2024", date(2024, 9, 1), date(2024, 12, 24), [1, 3, 5]),
+        ("Весна 2025", date(2025, 2, 9), date(2025, 6, 5),  [2, 4, 6]),
+        ("Осень 2025", date(2025, 9, 1), date(2025, 12, 24), [1, 3, 5]),
+        ("Весна 2026", date(2026, 2, 9), date(2026, 6, 5),  [2, 4, 6]),
+    ]
+
+    all_schedules = []
+    all_attendance = []
+
+    lecture_by_course = {}
+    for lec in data['lectures']:
+        lecture_by_course.setdefault(str(lec['course_id']), []).append(lec['id'])
+
+    for semester_name, start_d, end_d, active_semesters in semesters_config:
+        print(f"Генерация расписания для {semester_name} ({start_d} – {end_d})")
+
+        # отбираем лекции, чьи курсы принадлежат одному из активных семестров
+        active_lecture_ids = []
+        for course in data['lecture_courses']:
+            if course['semester'] in active_semesters:
+                active_lecture_ids.extend(lecture_by_course.get(str(course['id']), []))
+
+        if not active_lecture_ids:
+            continue
+        
+        sched = generate_schedules_for_semester(start_d, end_d, active_lecture_ids, group_ids)
+        att = generate_attendance(sched, data['students'])
+        all_schedules.extend(sched)
+        all_attendance.extend(att)
+
+    data['schedules'] = all_schedules
+    data['attendance'] = all_attendance
 
     fill_postgresql(data)
     fill_redis(data['students'])
@@ -840,4 +910,17 @@ def run_generation():
     fill_neo4j(data)
     fill_elasticsearch(data)
 
-    return {"status": "success", "students": len(data['students']), "lectures": len(data['lectures'])}
+    return {
+        "status": "success",
+        "students": len(data['students']),
+        "lectures": len(data['lectures']),
+        "student_groups": len(data['student_groups']),
+        "lecture_courses": len(data['lecture_courses']),
+        "lecture_materials": len(data['lecture_materials']),
+        "schedules": len(data['schedules']),
+        "attendance": len(data['attendance']),
+        "institutes": len(data['institutes']),
+        "departments": len(data['departments']),
+        "specialties": len(data['specialties']),
+        "department_specialties": len(data['department_specialties']),
+    }

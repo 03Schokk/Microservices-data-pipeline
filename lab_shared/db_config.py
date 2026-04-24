@@ -1,5 +1,5 @@
 """
-lab1_service - db_config.py
+lab123_service - db_config.py
 """
 
 import os

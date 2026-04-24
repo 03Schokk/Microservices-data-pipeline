@@ -22,17 +22,20 @@ from typing import Optional
 
 app = FastAPI(title="API Gateway")
 
-LAB1_SERVICE_URL = "https://lab1-nginx:443"   # имя контейнера в docker-compose
+LAB_SERVICE_URL = "https://nginx:443"
+LAB1_PATH = "/lab1"
+LAB2_PATH = "/lab2"
+LAB3_PATH = "/lab3"
 
 # получает JWT для сервиса lab1-service через грант client_credentials. Этот токен будет передан в lab1_service для авторизации
-async def get_service_token():
+async def get_service_token(client_id: str, client_secret: str):
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "http://localhost:8000/token",  # внутренний вызов самого себя
             data={
                 "grant_type": "client_credentials",
-                "client_id": "lab1-service",
-                "client_secret": "lab1-secret"
+                "client_id": client_id,
+                "client_secret": client_secret
             }
         )
         resp.raise_for_status()
@@ -80,33 +83,54 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
 
 # Прокси-запрос к генератору lab1: получение собственного токена -> отправка запрос через mTLS-клиент. Пользователь должен быть аутентифицирован
 @app.post("/api/lab1/generate")
-async def generate_data(current_user: User = Depends(get_current_active_user)):
+async def generate_data_lab1(current_user: User = Depends(get_current_active_user)):
     """Запуск генерации тестовых данных во все БД"""
-    token = await get_service_token()
+    token = await get_service_token("lab1-service", "lab1-secret")
     headers = {"Authorization": f"Bearer {token}"}
     async with get_mtls_client() as client:
         try:
-            resp = await client.post(f"{LAB1_SERVICE_URL}/generate", headers=headers, timeout=300.0)
+            resp = await client.post(f"{LAB_SERVICE_URL}{LAB1_PATH}/generate", headers=headers, timeout=600.0)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Lab1 service error: {str(e)}")
 
+@app.post("/api/lab2/generate")
+async def generate_data_lab2(current_user: User = Depends(get_current_active_user)):
+    """Запуск генерации тестовых данных во все БД"""
+    token = await get_service_token("lab2-service", "lab2-secret")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with get_mtls_client() as client:
+        try:
+            resp = await client.post(f"{LAB_SERVICE_URL}{LAB2_PATH}/generate", headers=headers, timeout=600.0)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Lab2 service error: {str(e)}")
+
+@app.post("/api/lab3/generate")
+async def generate_data_lab2(current_user: User = Depends(get_current_active_user)):
+    """Запуск генерации тестовых данных во все БД"""
+    token = await get_service_token("lab3-service", "lab3-secret")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with get_mtls_client() as client:
+        try:
+            resp = await client.post(f"{LAB_SERVICE_URL}{LAB3_PATH}/generate", headers=headers, timeout=600.0)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Lab3 service error: {str(e)}")
+
 # Прокси-запрос к поиску данных lab1: получение собственного токена -> отправка запрос через mTLS-клиент. Пользователь должен быть аутентифицирован
 @app.post("/api/lab1/report")
-async def get_report(
-    term: str,
-    start_date: str,
-    end_date: str,
-    current_user: User = Depends(get_current_active_user)
-):
+async def get_report(term: str, start_date: str, end_date: str, current_user: User = Depends(get_current_active_user)):
     """Получение отчёта по лабораторной работе №1"""
-    token = await get_service_token()
+    token = await get_service_token("lab1-service", "lab1-secret")
     headers = {"Authorization": f"Bearer {token}"}
     async with get_mtls_client() as client:
         try:
             resp = await client.post(
-                f"{LAB1_SERVICE_URL}/report",
+                f"{LAB_SERVICE_URL}{LAB1_PATH}/report",
                 headers=headers,
                 params={"term": term, "start_date": start_date, "end_date": end_date},
                 timeout=60.0
@@ -115,3 +139,39 @@ async def get_report(
             return resp.json()
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Lab1 service error: {str(e)}")
+
+@app.post("/api/lab2/report")
+async def get_report(semester: str, year: str, current_user: User = Depends(get_current_active_user)):
+    """Получение отчёта по лабораторной работе №2"""
+    token = await get_service_token("lab2-service", "lab2-secret")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with get_mtls_client() as client:
+        try:
+            resp = await client.post(
+                f"{LAB_SERVICE_URL}{LAB2_PATH}/report",
+                headers=headers,
+                params={"semester": semester, "year": year},
+                timeout=60.0
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Lab2 service error: {str(e)}")
+
+@app.post("/api/lab3/report")
+async def get_report(group_name: str, current_user: User = Depends(get_current_active_user)):
+    """Получение отчёта по лабораторной работе №3"""
+    token = await get_service_token("lab3-service", "lab3-secret")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with get_mtls_client() as client:
+        try:
+            resp = await client.post(
+                f"{LAB_SERVICE_URL}{LAB3_PATH}/report",
+                headers=headers,
+                params={"group_name": group_name},
+                timeout=60.0
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Lab3 service error: {str(e)}")

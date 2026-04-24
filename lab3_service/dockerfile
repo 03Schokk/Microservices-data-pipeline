@@ -1,4 +1,4 @@
-# lab1_service - dockerfile
+# lab3_service - dockerfile
 
 FROM python:3.11-slim
 
@@ -9,6 +9,6 @@ COPY lab_shared/ .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Код сервиса
-COPY lab1_service/app/ .
+COPY lab3_service/app/ .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]

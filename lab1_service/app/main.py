@@ -16,11 +16,15 @@ class GenerationResponse(BaseModel):
     status: str
     students: int
     lectures: int
-
-class ReportRequest(BaseModel):
-    term: str
-    start_date: str
-    end_date: str
+    student_groups: int
+    lecture_courses: int
+    lecture_materials: int
+    schedules: int
+    attendance: int
+    institutes: int
+    departments: int
+    specialties: int
+    department_specialties: int
 
 class UniversityInfo(BaseModel):
     name: str

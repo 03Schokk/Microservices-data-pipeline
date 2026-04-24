@@ -36,6 +36,16 @@ clients_db = {
         "client_id": "lab1-service",
         "client_secret": hash_password("lab1-secret"),
         "scopes": ["lab1:generate", "lab1:report"]
+    },
+    "lab2-service": {
+        "client_id": "lab2-service",
+        "client_secret": hash_password("lab2-secret"),
+        "scopes": ["lab2:generate", "lab2:report"]
+    },
+    "lab3-service": {
+        "client_id": "lab3-service",
+        "client_secret": hash_password("lab3-secret"),
+        "scopes": ["lab3:generate", "lab3:report"]
     }
 }
 
