@@ -21,7 +21,8 @@ async def verify_service_token(credentials: HTTPAuthorizationCredentials = Depen
         sub = payload.get("sub")
         token_type = payload.get("type")
 
-        # проверка частей токена на верные значения (т.к. это гарантирует, что запрос пришёл от доверенного gateway (только gateway знает client_secret и может получить такой токен))
+        # проверка частей токена на верные значения
+        # (это гарантирует, что запрос пришёл от доверенного gateway, ведь только он знает client_secret и может получить токен)
         if sub != "lab1-service" or token_type != "service": 
             raise HTTPException(status_code=403, detail="Invalid service token")
             

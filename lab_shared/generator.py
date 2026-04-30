@@ -22,91 +22,6 @@ from db_config import (
 
 fake = Faker('ru_RU')
 
-# ------------------ Функции ожидания готовности БД ------------------
-def wait_for_postgres(max_attempts=60, delay=2):
-    for attempt in range(1, max_attempts + 1):
-        try:
-            conn = psycopg2.connect(**POSTGRES_CONFIG)
-            conn.close()
-            print(f"PostgreSQL готов (попытка {attempt})")
-            return
-        except Exception as e:
-            print(f"PostgreSQL: попытка {attempt} - {e}")
-            time.sleep(delay)
-    raise Exception("PostgreSQL не запустился после {max_attempts} попыток")
-
-def wait_for_redis(max_attempts=60, delay=2):
-    r = redis.Redis(**REDIS_CONFIG)
-    for attempt in range(1, max_attempts + 1):
-        try:
-            if r.ping():
-                print(f"Redis готов (попытка {attempt})")
-                return
-        except Exception as e:
-            print(f"Redis: попытка {attempt} - {e}")
-        time.sleep(delay)
-    raise Exception("Redis не запустился после {max_attempts} попыток")
-
-def wait_for_mongodb(max_attempts=60, delay=2):
-    for attempt in range(1, max_attempts + 1):
-        try:
-            client = pymongo.MongoClient(
-                host=MONGO_CONFIG['host'],
-                port=MONGO_CONFIG['port'],
-                username=MONGO_CONFIG['username'],
-                password=MONGO_CONFIG['password'],
-                authSource=MONGO_CONFIG.get('authSource', 'admin'),
-                serverSelectionTimeoutMS=2000
-            )
-            client.admin.command('ping')
-            client.close()
-            print(f"MongoDB готова (попытка {attempt})")
-            return
-        except Exception as e:
-            print(f"MongoDB: попытка {attempt} - {e}")
-            time.sleep(delay)
-    raise Exception("MongoDB не запустилась после {max_attempts} попыток")
-
-def wait_for_neo4j(max_attempts=60, delay=2):
-    for attempt in range(1, max_attempts + 1):
-        try:
-            driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
-            driver.verify_connectivity()
-            driver.close()
-            print(f"Neo4j готов (попытка {attempt})")
-            return
-        except Exception as e:
-            print(f"Neo4j: попытка {attempt} - {e}")
-        time.sleep(delay)
-    raise Exception("Neo4j не запустился после {max_attempts} попыток")
-
-def wait_for_elasticsearch(max_attempts=60, delay=2):
-    es = Elasticsearch(
-        hosts=[f'http://{ELASTICSEARCH_CONFIG["host"]}:{ELASTICSEARCH_CONFIG["port"]}'],
-        basic_auth=(ELASTICSEARCH_CONFIG['user'], ELASTICSEARCH_CONFIG['password']),
-        verify_certs=False,
-        request_timeout=60
-    )
-    for attempt in range(1, max_attempts + 1):
-        try:
-            if es.ping():
-                print(f"Elasticsearch готов (попытка {attempt})")
-                return
-        except Exception as e:
-            print(f"Elasticsearch: попытка {attempt} - {e}")
-        time.sleep(delay)
-    raise Exception("Elasticsearch не запустился после {max_attempts} попыток")
-
-def wait_for_all_databases():
-    """Ожидание готовности всех БД (вызывается перед генерацией)"""
-    print("Ожидание готовности баз данных...")
-    wait_for_postgres()
-    wait_for_redis()
-    wait_for_mongodb()
-    wait_for_neo4j()
-    wait_for_elasticsearch()
-    print("Все базы данных готовы.")
-
 # ------------------ Генерация данных ------------------
 def generate_universities():
     return [{
@@ -273,7 +188,6 @@ def generate_students(group_ids):
     return students
 
 def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids):
-    """Генерирует расписание для одного семестра (осень/весна)."""
     schedules = []
     current_date = start_date
     while current_date <= end_date:
@@ -288,7 +202,7 @@ def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids
                         'lecture_id': lecture_id,
                         'group_id': group_id,
                         'scheduled_date': current_date,
-                        'week_start_date': current_date,  # упрощённо – начало недели совпадает с датой
+                        'week_start_date': current_date, # упрощённо - начало недели совпадает с датой
                         'start_time': start_time,
                         'end_time': end_time,
                         'classroom': f'{random.choice(["А", "Б", "В", "Г", "Д"])}-{random.randint(100, 500)}',
@@ -845,7 +759,6 @@ def fill_elasticsearch(data):
     es.indices.refresh(index='materials')
 
 def run_generation():
-    wait_for_all_databases()
     clear_databases()
     create_tables_postgresql()
     setup_elasticsearch()

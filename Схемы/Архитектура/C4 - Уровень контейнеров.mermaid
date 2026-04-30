@@ -1,0 +1,42 @@
+graph TD
+    User(("Пользователь"))
+    
+    subgraph "Граница системы"
+        Gateway["API Gateway : FastAPI, JWT"]
+        Nginx["Nginx Reverse Proxy (mTLS)"]
+        Lab1["Lab1 Service : контейнер, :8001"]
+        Lab2["Lab2 Service : контейнер, :8002"]
+        Lab3["Lab3 Service : контейнер, :8003"]
+        
+        subgraph "Слой БД"
+            PG[(PostgreSQL)]
+            Redis[(Redis)]
+            Mongo[(MongoDB)]
+            Neo4j[(Neo4j)]
+            ES[(Elasticsearch)]
+        end
+    end
+    
+    User -->|HTTP, JWT токен| Gateway
+    Gateway -->|"mTLS (клиентский сертификат)"| Nginx
+    Nginx -->|HTTP-запросы| Lab1
+    Nginx -->|HTTP-запросы| Lab2
+    Nginx -->|HTTP-запросы| Lab3
+    
+    Lab1 -->|чтение/запись| PG
+    Lab1 -->|чтение/запись| Redis
+    Lab1 -->|чтение/запись| Mongo
+    Lab1 -->|чтение/запись| Neo4j
+    Lab1 -->|чтение/запись| ES
+    
+    Lab2 -->|чтение/запись| PG
+    Lab2 -->|запись| Redis
+    Lab2 -->|запись| Mongo
+    Lab2 -->|чтение/запись| Neo4j
+    Lab2 -->|запись| ES
+    
+    Lab3 -->|чтение/запись| PG
+    Lab3 -->|чтение/запись| Neo4j
+    Lab3 -->|чтение/запись| Redis
+    Lab3 -->|чтение/запись| Mongo
+    Lab3 -->|запись| ES

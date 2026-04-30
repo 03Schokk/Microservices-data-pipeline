@@ -1,0 +1,78 @@
+graph LR
+    User(("Пользователь"))
+    
+    subgraph "Процессы"
+        GW[API Gateway<br/>Аутентификация JWT,<br/>приём отчётов]
+        Nginx[Nginx Reverse Proxy<br/>mTLS, маршрутизация]
+        P_Lab1[Lab1 Service<br/>Поиск лекций и<br/>посещаемости]
+        P_Lab2[Lab2 Service<br/>Аудиторная нагрузка]
+        P_Lab3[Lab3 Service<br/>Часы по кафедральным<br/>дисциплинам]
+    end
+    
+    subgraph "Хранилища данных"
+        DS_PG[(PostgreSQL<br/>Главная БД)]
+        DS_Redis[(Redis<br/>Кэш студентов)]
+        DS_Mongo[(MongoDB<br/>Иерархия вуза)]
+        DS_Neo4j[(Neo4j<br/>Граф расписания)]
+        DS_ES[(Elasticsearch<br/>Полнотекстовый<br/>поиск материалов)]
+    end
+    
+    %% Потоки от пользователя
+    User -->|"логин/пароль"| GW
+    GW -->|"JWT access_token"| User
+    User -->|"запрос отчёта + JWT"| GW
+    
+    %% Потоки между процессами
+    GW -->|"проксирует через mTLS"| Nginx
+    Nginx -->|"/lab1/report?term&dates"| P_Lab1
+    Nginx -->|"/lab2/report?semester&year"| P_Lab2
+    Nginx -->|"/lab3/report?group_name"| P_Lab3
+    
+    %% Потоки к хранилищам
+    P_Lab1 -->|"запрос материалов по term"| DS_ES
+    DS_ES -->|"lecture_ids"| P_Lab1
+
+    P_Lab1 -->|"пары студент-расписание"| DS_Neo4j
+    DS_Neo4j -->|"schedule_id, student_id"| P_Lab1
+
+    P_Lab1 -->|"расчёт % посещений"| DS_PG
+    DS_PG -->|"статистика"| P_Lab1
+
+    P_Lab1 -->|"обогащение ФИО"| DS_Redis
+    DS_Redis -->|"данные студента"| P_Lab1
+
+    P_Lab1 -->|"данные вуза"| DS_Mongo
+    DS_Mongo -->|"university info"| P_Lab1
+    
+
+    P_Lab2 -->|"группы по году"| DS_PG
+    DS_PG -->|"group_ids"| P_Lab2
+
+    P_Lab2 -->|"лекции по семестру"| DS_PG
+    DS_PG -->|"список лекций"| P_Lab2
+
+    P_Lab2 -->|"подсчёт студентов"| DS_Neo4j
+    DS_Neo4j -->|"student_count"| P_Lab2
+    
+
+    P_Lab3 -->|"кафедральные курсы"| DS_PG
+    DS_PG -->|"курсы, часы"| P_Lab3
+
+    P_Lab3 -->|"студенты группы"| DS_Neo4j
+    DS_Neo4j -->|"schedule->student"| P_Lab3
+
+    P_Lab3 -->|"посещаемость"| DS_PG
+    DS_PG -->|"note"| P_Lab3
+
+    P_Lab3 -->|"ФИО студентов"| DS_Redis
+    DS_Redis -->|"перс. данные"| P_Lab3
+    
+    P_Lab3 -->|"инфо вуза"| DS_Mongo
+    DS_Mongo -->|"university"| P_Lab3
+    
+    %% Ответы (справа налево)
+    P_Lab1 -->|"JSON отчёт"| Nginx
+    P_Lab2 -->|"JSON отчёт"| Nginx
+    P_Lab3 -->|"JSON отчёт"| Nginx
+    Nginx -->|"JSON"| GW
+    GW -->|"ответ"| User

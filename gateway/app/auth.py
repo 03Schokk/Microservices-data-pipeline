@@ -110,7 +110,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
         token_data = TokenData(username=username)
     except JWTError as e:
-        # Добавим вывод ошибки в логи для диагностики
         print(f"JWT decode error: {e}")
         raise credentials_exception
     user = get_user(users_db, username=token_data.username)

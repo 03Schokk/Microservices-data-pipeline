@@ -13,11 +13,11 @@ if [ ! -f ca.crt ]; then
     openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -out ca.crt -subj "/CN=My Root CA"
 fi
 
-# Серверный сертификат для nginx (lab1-nginx)
+# Серверный сертификат для nginx
 if [ ! -f server.crt ]; then
     echo "Generating server certificate for nginx..."
     openssl genrsa -out server.key 2048
-    openssl req -new -key server.key -out server.csr -subj "/CN=lab1-nginx"
+    openssl req -new -key server.key -out server.csr -subj "/CN=nginx"
     openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -sha256
     rm server.csr
 fi

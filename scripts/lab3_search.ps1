@@ -63,7 +63,7 @@ if ($report.students.Count -eq 0) {
     $lines += "`nСтудентов в отчёте: $($report.students.Count)"
     $lines += ""
     $lines += "-" * 165
-    $lines += ("{0,-3} {1,-35} {2,-25} {3,-15} {4,-15}" -f "№", "ФИО студента", "Курс", "Запланировано", "Прослушано")
+    $lines += ("{0,-3} {1,-35} {2,-25} {3,-7} {4,-12} {5,-12}" -f "№", "ФИО студента", "Курс", "Сем.", "Запланир.", "Прослуш.")
     $lines += "-" * 165
 
     foreach ($student in $report.students) {
@@ -71,19 +71,20 @@ if ($report.students.Count -eq 0) {
         if ($fullName.Length -gt 35) { $fullName = $fullName.Substring(0, 32) + "..." }
 
         if ($student.courses.Count -eq 0) {
-            $lines += ("{0,-3} {1,-35} {2,-25} {3,-15} {4,-15}" -f "–", $fullName, "–", "–", "–")
+            $lines += ("{0,-3} {1,-35} {2,-25} {3,-7} {4,-12} {5,-12}" -f "–", $fullName, "–", "–", "–", "–")
         } else {
             $courseNum = 1
             foreach ($course in $student.courses) {
                 $courseName = if ($course.course_name.Length -gt 25) { $course.course_name.Substring(0, 22) + "..." } else { $course.course_name }
+                $semester = $course.semester
                 $planned = $course.planned_hours
                 $attended = $course.attended_hours
-                $lines += ("{0,-3} {1,-35} {2,-25} {3,-15} {4,-15}" -f $courseNum, $fullName, $courseName, $planned, $attended)
+                $lines += ("{0,-3} {1,-35} {2,-25} {3,-7} {4,-12} {5,-12}" -f $courseNum, $fullName, $courseName, $semester, $planned, $attended)
                 $courseNum++
-                $fullName = ""   # не повторяем ФИО для следующих курсов
+                $fullName = ""
             }
         }
-        $lines += ""   # пустая строка между студентами
+        $lines += ""
     }
 
     $lines += "-" * 165

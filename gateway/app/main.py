@@ -27,7 +27,7 @@ LAB1_PATH = "/lab1"
 LAB2_PATH = "/lab2"
 LAB3_PATH = "/lab3"
 
-# получает JWT для сервиса lab1-service через грант client_credentials. Этот токен будет передан в lab1_service для авторизации
+# получает JWT для сервиса lab1-service через грант client_credentials. Этот токен будет передан в lab_service для авторизации
 async def get_service_token(client_id: str, client_secret: str):
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -44,7 +44,7 @@ async def get_service_token(client_id: str, client_secret: str):
 # эндпоинт выдачи токенов
 # 2 типа:
 # - grant_type=password - для пользователей (username/password). Возвращает токен с "type": "user"
-# - grant_type=client_credentials — для сервисов (client_id/client_secret). Возвращает токен с "type": "service" и списком scopes
+# - grant_type=client_credentials - для сервисов (client_id/client_secret). Возвращает токен с "type": "service" и списком scopes
 @app.post("/token", response_model=Token)
 async def login(
     grant_type: str = Form(...),

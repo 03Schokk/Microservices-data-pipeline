@@ -57,7 +57,7 @@ def generate_report(group_name: str):
         # 2. Кафедральные курсы (привязанные к специальностям кафедр)
         with pg_conn.cursor() as cur:
             cur.execute("""
-                SELECT lc.id, lc.name, lc.lecture_hours
+                SELECT lc.id, lc.name, lc.lecture_hours, lc.semester
                 FROM lecture_course lc
                 JOIN department_specialties ds ON lc.specialty_id = ds.specialty_id
                 WHERE ds.is_primary = TRUE
@@ -66,7 +66,8 @@ def generate_report(group_name: str):
             for row in cur.fetchall():
                 dept_courses[str(row[0])] = {
                     'name': row[1],
-                    'planned_hours': row[2]
+                    'planned_hours': row[2],
+                    'semester': row[3]
                 }
         if not dept_courses:
             return {"group_name": group_name, "students": []}
@@ -166,6 +167,7 @@ def generate_report(group_name: str):
                 course_info = dept_courses.get(course_id, {})
                 courses_list.append({
                     "course_name": course_info.get('name', '?'),
+                    "semester": course_info.get('semester', 0),
                     "planned_hours": course_info.get('planned_hours', 0),
                     "attended_hours": attendance_count * 2  # каждая лекция = 2 академ. часа
                 })

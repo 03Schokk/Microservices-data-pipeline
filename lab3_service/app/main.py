@@ -27,6 +27,7 @@ class GenerationResponse(BaseModel):
 
 class CourseHours(BaseModel):
     course_name: str
+    semester: int
     planned_hours: int
     attended_hours: int
 
