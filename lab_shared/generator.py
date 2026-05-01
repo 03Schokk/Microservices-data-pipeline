@@ -101,21 +101,28 @@ def generate_lecture_courses(specialty_ids):
         'Базы данных', 'Алгоритмы и структуры данных', 'Операционные системы',
         'Сети ЭВМ', 'Объектно-ориентированное программирование',
         'Веб-технологии', 'Искусственный интеллект', 'Машинное обучение',
-        'Криптография', 'Тестирование ПО', 'DevOps практики', 'Облачные вычисления'
+        'Криптография', 'Тестирование ПО', 'DevOps практики', 'Облачные вычисления',
+        'Backend-разработка', 'Frontend-разработка', 'Разработка мобильных приложений'
     ]
     for spec_id in specialty_ids:
         for semester in range(1, 7):
             for course_name in random.sample(course_names, k=2):
+                
+                lecture_hours = random.randint(32, 64)
+                practice_hours = random.randint(16, 32)
+                lab_hours = random.randint(16, 32)
+                total_hours = lecture_hours + practice_hours + lab_hours
+
                 courses.append({
                     'id': uuid.uuid4(),
                     'specialty_id': spec_id,
                     'name': course_name,
-                    'description': f'Курс "{course_name}"',
+                    'description': f'{fake.sentence(nb_words=5)}',
                     'semester': semester,
-                    'total_hours': random.randint(72, 144),
-                    'lecture_hours': random.randint(32, 64),
-                    'practice_hours': random.randint(16, 32),
-                    'lab_hours': random.randint(16, 32)
+                    'total_hours': total_hours,
+                    'lecture_hours': lecture_hours,
+                    'practice_hours': practice_hours,
+                    'lab_hours': lab_hours
                 })
     return courses
 
@@ -124,13 +131,18 @@ def generate_lectures(course_ids):
     for course_id in course_ids:
         for i in range(1, random.randint(8, 16)):
             lecture_type = random.choice(['Лекция', 'Практика', 'Лабораторная'])
+            computer_type = ['Требуется проектор', 'Дополнительная техника не требуется']
+
+            if lecture_type == 'Лекция':
+                computer_type.extend(['Требуется компьютерный класс с ОС Windows', 'Требуется компьютерный класс с ОС Linux'])
+
             lectures.append({
                 'id': uuid.uuid4(),
                 'course_id': course_id,
                 'title': f'Занятие {i}: {fake.sentence(nb_words=5)}',
                 'annotation': fake.paragraph(),
                 'lecture_type': lecture_type,
-                'computer_type': random.choice(['Требуется проектор', 'Дополнительная техника не требуется']) if lecture_type == 'Лекция' else random.choice(['Требуется компьютерный класс с ОС Windows', 'Требуется компьютерный класс с ОС Linux', 'Требуется проектор', 'Дополнительная техника не требуется']),
+                'computer_type': random.choice(computer_type),
                 'order_number': i,
                 'duration_minutes': 90  # 2 академических часа (90 минут)
             })
@@ -171,7 +183,7 @@ def generate_student_groups(specialty_ids):
 
 def generate_students(group_ids):
     students = []
-    for i in range(1000):
+    for i in range(1500):
         name = fake.name().split()
         students.append({
             'id': uuid.uuid4(),
@@ -182,7 +194,7 @@ def generate_students(group_ids):
             'email': f'student{i}@edu.mirea.ru',
             'phone': fake.phone_number(),
             'student_card_number': f'НСБ-{i+1:06d}',
-            'enrollment_date': fake.date_between(start_date='-3y', end_date='today'),
+            'enrollment_date': fake.date_between(start_date='-4y', end_date='-2y'),
             'status': random.choice(['Активный', 'Академ'])
         })
     return students
@@ -192,9 +204,9 @@ def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids
     current_date = start_date
     while current_date <= end_date:
         # праздники не учитываются
-        for lecture_id in random.sample(lecture_ids, k=min(20, len(lecture_ids))):
-            for group_id in random.sample(group_ids, k=min(5, len(group_ids))):
-                if random.random() > 0.3:
+        for lecture_id in random.sample(lecture_ids, k=min(40, len(lecture_ids))):
+            for group_id in random.sample(group_ids, k=min(10, len(group_ids))):
+                if random.random() > 0.2:
                     start_time = datetime.strptime(f"{random.randint(9, 17)}:{random.choice(['00', '30'])}", "%H:%M").time()
                     end_time = (datetime.combine(current_date, start_time) + timedelta(minutes=90)).time()
                     schedules.append({
@@ -205,7 +217,7 @@ def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids
                         'week_start_date': current_date, # упрощённо - начало недели совпадает с датой
                         'start_time': start_time,
                         'end_time': end_time,
-                        'classroom': f'{random.choice(["А", "Б", "В", "Г", "Д"])}-{random.randint(100, 500)}',
+                        'classroom': f'{random.choice(["А", "Б", "В", "Г", "Д"])}-{random.randint(100, 400)}',
                         'teacher_name': fake.name(),
                         'status': random.choice(['Отменено', 'Завершено'])
                     })
@@ -445,18 +457,29 @@ def create_tables_postgresql():
         ) PARTITION BY RANGE (week_start_date)
     """)
 
-    # Партиции
-    start_date = date(2024, 1, 1)
-    end_date = date(2026, 12, 24)
-    current = start_date
-    while current <= end_date:
-        next_month = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
-        partition_name = f"attendance_{current.year}_{current.month:02d}"
+    # все даты начала учебных недель
+    week_starts = set()
+    semesters_config = [
+        (date(2024, 9, 1), date(2024, 12, 24)),
+        (date(2025, 2, 9), date(2025, 6, 5)),
+        (date(2025, 9, 1), date(2025, 12, 24)),
+        (date(2026, 2, 9), date(2026, 6, 5)),
+    ]
+    for start_d, end_d in semesters_config:
+        current = start_d
+        while current <= end_d:
+            week_starts.add(current)
+            current += timedelta(days=7)
+
+    # партиции для каждой недели
+    for week_start in sorted(week_starts):
+        week_end = week_start + timedelta(days=7)   # интервал ровно 7 дней
+        iso_year, iso_week, _ = week_start.isocalendar()
+        partition_name = f"attendance_{iso_year}_w{iso_week:02d}"
         cur.execute(f"""
             CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF attendance
-            FOR VALUES FROM ('{current.isoformat()}') TO ('{next_month.isoformat()}')
+            FOR VALUES FROM ('{week_start.isoformat()}') TO ('{week_end.isoformat()}')
         """)
-        current = next_month
 
     cur.close()
     conn.close()
@@ -615,14 +638,12 @@ def fill_mongodb(data):
 def fill_neo4j(data):
     driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
     with driver.session() as session:
-        # Группы
         groups_params = [{"id": str(g['id']), "name": g['name']} for g in data['student_groups']]
         session.run(
             "UNWIND $groups AS g CREATE (:StudentGroup {id: g.id, name: g.name})",
             groups=groups_params
         )
 
-        # Студенты
         students_params = [
             {"id": str(s['id']), "card": s['student_card_number'], "group_id": str(s['group_id'])}
             for s in data['students']
@@ -635,7 +656,6 @@ def fill_neo4j(data):
             students=students_params
         )
 
-        # Лекции
         lectures_params = [
             {"id": str(l['id']), "type": l['lecture_type'], "title": l['title']}
             for l in data['lectures']
@@ -645,7 +665,6 @@ def fill_neo4j(data):
             lectures=lectures_params
         )
 
-        # Расписания
         schedules_params = [
             {
                 "id": str(sch['id']),
@@ -682,19 +701,19 @@ def setup_elasticsearch():
     )
     index_body = {
         'settings': {
-            'number_of_shards': 1,
-            'number_of_replicas': 0,
+            'number_of_shards': 1,    # фрагменты индекса
+            'number_of_replicas': 0,  # копии фрагментов
             'analysis': {
                 'analyzer': {
                     'russian_custom': {
                         'type': 'custom',
                         'tokenizer': 'standard',
-                        'filter': ['lowercase', 'russian_stop', 'russian_stemmer']
+                        'filter': ['lowercase', 'russian_stop', 'russian_stemmer'] # разбиение предложения на слова
                     }
                 },
                 'filter': {
-                    'russian_stop': {'type': 'stop', 'stopwords': '_russian_'},
-                    'russian_stemmer': {'type': 'stemmer', 'language': 'russian'}
+                    'russian_stop': {'type': 'stop', 'stopwords': '_russian_'},    # стоп слова для удаления (частицы, союзы)
+                    'russian_stemmer': {'type': 'stemmer', 'language': 'russian'}  # корни слов
                 }
             }
         },
@@ -765,20 +784,30 @@ def run_generation():
 
     # Генерация базовых сущностей
     data = {}
+
     data['universities'] = generate_universities()
+
     data['institutes'] = generate_institutes(data['universities'][0]['id'])
+
     institute_ids = [i['id'] for i in data['institutes']]
     data['departments'] = generate_departments(institute_ids)
+
     department_ids = [d['id'] for d in data['departments']]
     data['specialties'] = generate_specialties()
+
     specialty_ids = [s['id'] for s in data['specialties']]
     data['department_specialties'] = generate_department_specialties(department_ids, specialty_ids)
+
     data['lecture_courses'] = generate_lecture_courses(specialty_ids)
+
     course_ids = [c['id'] for c in data['lecture_courses']]
     data['lectures'] = generate_lectures(course_ids)
+    
     lecture_ids = [l['id'] for l in data['lectures']]
     data['lecture_materials'] = generate_lecture_materials(lecture_ids)
+
     data['student_groups'] = generate_student_groups(specialty_ids)
+
     group_ids = [g['id'] for g in data['student_groups']]
     data['students'] = generate_students(group_ids)
 

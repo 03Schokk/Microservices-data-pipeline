@@ -23,14 +23,16 @@ def get_group_ids_by_year(pg_conn, enrollment_year):
         return [row[0] for row in cur.fetchall()]
 
 def get_lectures_by_semester(pg_conn, semester):
-    """Возвращает список лекций со своими параметрами"""
+    """Возвращает список лекций"""
     with pg_conn.cursor() as cur:
         cur.execute("""
             SELECT l.id, l.title, l.lecture_type, l.computer_type,
                    c.id AS course_id, c.name AS course_name,
-                   c.description AS course_description
+                   c.description AS course_description,
+                   s.name AS specialty_name
             FROM lecture l
             JOIN lecture_course c ON l.course_id = c.id
+            LEFT JOIN specialty s ON c.specialty_id = s.id
             WHERE c.semester = %s
         """, (semester,))
         lectures = {}
@@ -41,7 +43,8 @@ def get_lectures_by_semester(pg_conn, semester):
                 'computer_type': row[3],
                 'course_id': str(row[4]),
                 'course_name': row[5],
-                'course_description': row[6]
+                'course_description': row[6],
+                'specialty_name': row[7] if row[7] else 'Не указана'
             }
         return lectures
 
@@ -59,7 +62,7 @@ def get_lecture_student_counts(neo4j_driver, group_ids, lecture_ids):
     """
     Для каждой лекции подсчитывает количество уникальных студентов,
     которые присутствуют в расписании через свои группы.
-    group_ids и lecture_ids – списки строковых UUID.
+    group_ids и lecture_ids - списки строковых UUID.
     Возвращает dict: lecture_id -> student_count
     """
     if not group_ids or not lecture_ids:
@@ -103,6 +106,7 @@ def generate_report(semester: int, year: int):
         report = []
         for lec_id, lec_info in lectures_dict.items():
             report.append({
+                "specialty_name": lec_info["specialty_name"],
                 "course_name": lec_info["course_name"],
                 "course_description": lec_info["course_description"],
                 "semester": semester,

@@ -69,8 +69,8 @@ services:
     container_name: elasticsearch-server
     restart: unless-stopped
     ports:
-      - "12000:9200"
-      - "12001:9300"
+      - "20000:9200"
+      - "20001:9300"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
       - elasticsearch_logs:/usr/share/elasticsearch/logs

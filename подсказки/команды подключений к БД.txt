@@ -11,7 +11,7 @@ docker exec -it neo4j-server cypher-shell -u neo4j -p password123 -a bolt://loca
 
 
 ELASTICSEARCH (проверка статуса работы):
-http://localhost:12000/_cluster/health?pretty
+http://localhost:20000/_cluster/health?pretty
 
 
 POSTGRESQL:

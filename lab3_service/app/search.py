@@ -1,8 +1,6 @@
 """
 lab3_service - search.py
-
-Запрос: отчёт по группе, в котором есть запланированные и прослушанные часы
-по кафедральным дисциплинам
+Упрощённый запрос отчёта по группе: плановые и прослушанные часы по кафедральным дисциплинам.
 """
 
 import psycopg2
@@ -11,16 +9,12 @@ import redis
 import pymongo
 from db_config import POSTGRES_CONFIG, NEO4J_CONFIG, REDIS_CONFIG, MONGO_CONFIG
 
-# ---------------------------- Подключения ----------------------------
+# ------- Подключения -------
 def get_postgres_connection():
     return psycopg2.connect(**POSTGRES_CONFIG)
 
 def get_neo4j_driver():
-    driver = GraphDatabase.driver(
-        NEO4J_CONFIG['uri'],
-        auth=(NEO4J_CONFIG['user'],
-        NEO4J_CONFIG['password'])
-    )
+    driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
     driver.verify_connectivity()
     return driver
 
@@ -28,14 +22,10 @@ def get_redis_client():
     return redis.Redis(**REDIS_CONFIG)
 
 def get_mongo_client():
-    return pymongo.MongoClient(
-        host=MONGO_CONFIG['host'],
-        port=MONGO_CONFIG['port'],
-        username=MONGO_CONFIG['username'],
-        password=MONGO_CONFIG['password']
-    )
+    return pymongo.MongoClient(host=MONGO_CONFIG['host'], port=MONGO_CONFIG['port'],
+                               username=MONGO_CONFIG['username'], password=MONGO_CONFIG['password'])
 
-# ---------------------------- Основная функция ----------------------------
+# ------- Основной отчёт -------
 def generate_report(group_name: str):
     pg_conn = get_postgres_connection()
     neo4j_driver = get_neo4j_driver()
@@ -43,18 +33,15 @@ def generate_report(group_name: str):
     mongo_client = get_mongo_client()
 
     try:
-        # 1. Получаем группу и её специальность (PostgreSQL)
+        # 1. ID группы (PostgreSQL)
         with pg_conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, specialty_id FROM student_group WHERE name = %s",
-                (group_name,)
-            )
+            cur.execute("SELECT id FROM student_group WHERE name = %s", (group_name,))
             row = cur.fetchone()
             if not row:
                 return {"group_name": group_name, "students": []}
-            group_id, specialty_id = row
+            group_id = row[0]
 
-        # 2. Кафедральные курсы (привязанные к специальностям кафедр)
+        # 2. Кафедральные курсы (PostgreSQL, is_primary = True)
         with pg_conn.cursor() as cur:
             cur.execute("""
                 SELECT lc.id, lc.name, lc.lecture_hours, lc.semester
@@ -62,94 +49,86 @@ def generate_report(group_name: str):
                 JOIN department_specialties ds ON lc.specialty_id = ds.specialty_id
                 WHERE ds.is_primary = TRUE
             """)
-            dept_courses = {}
-            for row in cur.fetchall():
-                dept_courses[str(row[0])] = {
+            courses = {
+                str(row[0]): {
                     'name': row[1],
                     'planned_hours': row[2],
                     'semester': row[3]
-                }
-        if not dept_courses:
+                } for row in cur.fetchall()
+            }
+        if not courses:
             return {"group_name": group_name, "students": []}
 
-        # 3. Студенты группы (PostgreSQL)
+        # 3. ID лекций кафедральных курсов (PostgreSQL)
         with pg_conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, student_card_number FROM student WHERE group_id = %s",
-                (group_id,)
-            )
-            students_pg = {str(row[0]): row[1] for row in cur.fetchall()}
-        if not students_pg:
+            cur.execute("SELECT id, course_id FROM lecture WHERE course_id = ANY(%s::uuid[])", (list(courses.keys()),))
+            lecture_course = {str(row[0]): str(row[1]) for row in cur.fetchall()}
+
+        student_card_map = {}         # список всех студентов (id: student_card_number) (для Redis и отчёта)
+        student_schedule_lecture = [] # связь id студента с id расписания и id лекции (для подсчёта)
+
+        # 4. Студенты и их расписание (Neo4j)
+        with neo4j_driver.session() as session:
+            # OPTIONAL MATCH - на случай, если у группы нет расписания по кафедральной дисциплине на определённом семестре
+            result = session.run("""
+                MATCH (g:StudentGroup {id: $group_id})-[:HAS_STUDENT]->(s:Student)
+                OPTIONAL MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)-[:PART_OF]->(l:Lecture)
+                WHERE l.id IN $lecture_ids
+                RETURN 
+                    s.id AS student_id,
+                    s.student_card_number AS student_card_number,
+                    sch.id AS schedule_id,
+                    l.id AS lecture_id
+            """, group_id=str(group_id), lecture_ids=list(lecture_course.keys()))
+
+            for row in result:
+                student_id = row["student_id"]
+                student_card_number = row["student_card_number"]
+
+                if student_id not in student_card_map:
+                    student_card_map[student_id] = student_card_number
+
+                if row["schedule_id"] and row["lecture_id"]:
+                    student_schedule_lecture.append((student_id, row["schedule_id"], row["lecture_id"]))
+
+        if not student_card_map:
             return {"group_name": group_name, "students": []}
 
-        # 4. Соответствие лекция -> курс (PostgreSQL)
-        with pg_conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, course_id FROM lecture WHERE course_id = ANY(%s::uuid[])",
-                (list(dept_courses.keys()),)
-            )
-            rows = cur.fetchall()
-            lecture_course_map = {str(row[0]): str(row[1]) for row in rows}
-            lecture_ids_list = [str(row[0]) for row in rows]   # реальные ID лекций
+        # 5. Отметки о посещаемости (PostgreSQL)
+        attendance = {}
 
-        # 5. Расписание и посещения через Neo4j (пары student – lecture)
-        student_lectures = {}
-        if lecture_ids_list:
-            with neo4j_driver.session() as session:
-                query = """
-                    MATCH (g:StudentGroup {id: $group_id})-[:HAS_STUDENT]->(s:Student)
-                    MATCH (g)-[:HAS_SCHEDULE]->(sch:Schedule)-[:PART_OF]->(l:Lecture)
-                    WHERE l.id IN $lecture_ids
-                    RETURN s.id AS student_id, sch.id AS schedule_id, l.id AS lecture_id
-                """
-                result = session.run(query,
-                                    group_id=str(group_id),
-                                    lecture_ids=lecture_ids_list)
-                for record in result:
-                    sid = record["student_id"]
-                    if sid not in student_lectures:
-                        student_lectures[sid] = []
-                    student_lectures[sid].append((record["schedule_id"], record["lecture_id"]))
-
-        # 6. Получаем отметки о посещении (PostgreSQL)
-        pairs = []
-        for sid, lst in student_lectures.items():
-            for sch_id, _ in lst:
-                pairs.append((sch_id, sid))
-        attendance_notes = {}
-        if pairs:
-            schedule_ids = [p[0] for p in pairs]
-            student_ids = [p[1] for p in pairs]
+        if student_schedule_lecture:
+            students = [p[0] for p in student_schedule_lecture]
+            schedules = [p[1] for p in student_schedule_lecture]
+            
             with pg_conn.cursor() as cur:
-                query = """
-                    SELECT t.schedule_id, t.student_id, a.note
-                    FROM unnest(%s::uuid[], %s::uuid[]) AS t(schedule_id, student_id)
-                    LEFT JOIN attendance a ON a.schedule_id = t.schedule_id AND a.student_id = t.student_id
-                """
-                cur.execute(query, (schedule_ids, student_ids))
+                cur.execute("""
+                    SELECT t.student_id, t.schedule_id, a.note
+                    FROM unnest(%s::uuid[], %s::uuid[]) AS t(student_id, schedule_id)
+                    LEFT JOIN attendance a ON a.student_id = t.student_id AND a.schedule_id = t.schedule_id
+                """, (students, schedules))
+
                 for row in cur.fetchall():
-                    attendance_notes[(str(row[0]), str(row[1]))] = row[2]
+                    attendance[(str(row[0]), str(row[1]))] = row[2]
 
-        # 7. Подсчитываем прослушанные часы по курсам для каждого студента
-        student_course_hours = {}  # student_id -> {course_id: attended_lectures_count}
-        for sid, lst in student_lectures.items():
-            course_counts = {}
-            for sch_id, lec_id in lst:
-                course_id = lecture_course_map.get(lec_id)
-                if not course_id:
-                    continue
-                note = attendance_notes.get((sch_id, sid), None)
-                if note == 'Присутствовал':
-                    course_counts[course_id] = course_counts.get(course_id, 0) + 1
-            student_course_hours[sid] = course_counts
+        # 6. Подсчёт прослушанных лекций по курсам для каждого студента
+        student_course_hours = {}  # student_id: {course_id: lecture_count}
+        
+        for student_id, schedule_id, lecture_id in student_schedule_lecture:
+            course_id = lecture_course.get(lecture_id)
+            if not course_id:
+                continue
+            if attendance.get((student_id, schedule_id)) == 'Присутствовал':
+                student_course_hours.setdefault(student_id, {}).setdefault(course_id, 0)
+                student_course_hours[student_id][course_id] += 1
 
-        # 8. Обогащаем данные из Redis и формируем отчёт
+        # 7. Обогащение студентов группы из Redis
         pipe = redis_client.pipeline()
-        for card in students_pg.values():
+        for card in student_card_map.values():
             pipe.hgetall(f"student:{card}")
         redis_data = pipe.execute()
 
-        # 9. Информация об университете (MongoDB) – опционально
+        # 8. Информация об университете (MongoDB)
         db = mongo_client[MONGO_CONFIG['database']]
         uni_doc = db.universities.find_one({}, {"name": 1, "address": 1, "website": 1})
         university_info = {
@@ -158,20 +137,22 @@ def generate_report(group_name: str):
             "website": uni_doc.get("website", "N/D") if uni_doc else "N/D"
         }
 
-        # 10. Сборка ответа
+        # 9. Сборка ответа
         students_out = []
-        for idx, (student_id, card) in enumerate(students_pg.items()):
-            rd = redis_data[idx] if redis_data[idx] else {}
+        
+        for idx, (student_id, card) in enumerate(student_card_map.items()):
+            rd = redis_data[idx] or {}
             courses_list = []
-            for course_id, attendance_count in student_course_hours.get(student_id, {}).items():
-                course_info = dept_courses.get(course_id, {})
+
+            for course_id, count_hours in student_course_hours.get(student_id, {}).items():
+                course = courses.get(course_id, {})
                 courses_list.append({
-                    "course_name": course_info.get('name', '?'),
-                    "semester": course_info.get('semester', 0),
-                    "planned_hours": course_info.get('planned_hours', 0),
-                    "attended_hours": attendance_count * 2  # каждая лекция = 2 академ. часа
+                    "course_name": course.get('name', '?'),
+                    "semester": course.get('semester', 0),
+                    "planned_hours": course.get('planned_hours', 0),
+                    "attended_hours": count_hours * 2   # 2 академ. часа на лекцию
                 })
-            # если студент не посещал ни одной лекции – всё равно включаем в отчёт
+
             students_out.append({
                 "last_name": rd.get("last_name", ""),
                 "first_name": rd.get("first_name", ""),

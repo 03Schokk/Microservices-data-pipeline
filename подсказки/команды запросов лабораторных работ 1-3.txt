@@ -5,6 +5,10 @@ docker-compose up -d
 --------- 2. Получить пользовательский токен ---------
 $token = (curl.exe -X POST http://localhost:8000/token -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=password&username=admin&password=secret" | ConvertFrom-Json).access_token
 
+ПОЯСНЕНИЯ:
+-H "Content-Type: application/x-www-form-urlencoded" – HTTP‑заголовок, указывающий, что тело запроса закодировано как веб‑форма (пары ключ=значение, разделённые &)
+ConvertFrom-Json – считывание JSON-ответа в объект для последующего извлечения access_token
+
 --------- 3. Запустить генерацию данных (например, в lab1) ---------
 curl.exe -X POST http://localhost:8000/api/lab1/generate -H "Authorization: Bearer $token"
 curl.exe -X POST http://localhost:8000/api/lab2/generate -H "Authorization: Bearer $token"

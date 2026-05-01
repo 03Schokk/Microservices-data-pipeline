@@ -45,7 +45,7 @@ NEO4J_CONFIG = {
 
 ELASTICSEARCH_CONFIG = {
     'host': 'localhost',
-    'port': 12000,
+    'port': 20000,
     'user': 'elastic',
     'password': 'elastic_pass123'
 }

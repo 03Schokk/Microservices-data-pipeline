@@ -102,16 +102,16 @@ def get_students_and_schedules(neo4j_driver, lecture_ids, start_date, end_date):
         return data
 
 # ==================== РАСЧЁТ ПОСЕЩАЕМОСТИ В POSTGRESQL ====================
-def get_attendance_stats(postgres_conn, neo4j_data, min_lessons=5):
+def get_attendance_stats(postgres_conn, neo4j_data):
     if not neo4j_data:
         return []
     pairs = [(item["schedule_id"], item["student_id"]) for item in neo4j_data]
     with postgres_conn.cursor() as cur:
         query = """
-            WITH neo4j_pairs AS (
+            WITH neo4j_pairs AS ( -- формирование таблицы из массивов индексов neo4j
                 SELECT * FROM unnest(%s::uuid[], %s::uuid[]) AS t(schedule_id, student_id)
             ),
-            student_info AS (
+            student_info AS (     -- сбор минимальной информации по студентам 
                 SELECT DISTINCT 
                     s.id AS student_id,
                     s.student_card_number,
@@ -122,7 +122,7 @@ def get_attendance_stats(postgres_conn, neo4j_data, min_lessons=5):
                 JOIN student_group sg ON s.group_id = sg.id
                 JOIN specialty sp ON sg.specialty_id = sp.id
             ),
-            attendance_data AS (
+            attendance_data AS (  -- cбор отметок по посещениям
                 SELECT 
                     np.student_id,
                     np.schedule_id,
@@ -145,13 +145,12 @@ def get_attendance_stats(postgres_conn, neo4j_data, min_lessons=5):
             FROM student_info si
             JOIN attendance_data ad ON si.student_id = ad.student_id
             GROUP BY si.student_id, si.student_card_number, si.group_name, si.specialty_name
-            HAVING COUNT(DISTINCT ad.schedule_id) >= %s
             ORDER BY attendance_percent ASC
             LIMIT 10
         """
         schedule_ids = [p[0] for p in pairs]
         student_ids = [p[1] for p in pairs]
-        cur.execute(query, (schedule_ids, student_ids, min_lessons))
+        cur.execute(query, (schedule_ids, student_ids))
         rows = cur.fetchall()
         columns = ['student_id', 'student_card_number', 'group_name', 'specialty_name',
                    'total_scheduled', 'attendance_percent']
@@ -198,7 +197,7 @@ def get_min_max_schedule_dates(postgres_conn):
         return min_date, max_date
 
 # ==================== ОСНОВНАЯ ФУНКЦИЯ ====================
-def generate_report(term, start_date, end_date, min_lessons=5):
+def generate_report(term, start_date, end_date):
     try:
         es_client = get_elasticsearch_client()
         lecture_ids = find_lecture_ids_by_term(es_client, term)
@@ -214,7 +213,7 @@ def generate_report(term, start_date, end_date, min_lessons=5):
             return []
 
         pg_conn = get_postgres_connection()
-        student_stats = get_attendance_stats(pg_conn, neo4j_data, min_lessons)
+        student_stats = get_attendance_stats(pg_conn, neo4j_data)
         pg_conn.close()
         if not student_stats:
             print("Нет данных о посещаемости или недостаточно занятий")

@@ -26,6 +26,7 @@ class GenerationResponse(BaseModel):
     department_specialties: int
 
 class LectureReport(BaseModel):
+    specialty_name: str
     course_name: str
     course_description: str
     semester: int
