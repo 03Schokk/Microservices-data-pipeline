@@ -39,13 +39,10 @@ class StudentReport(BaseModel):
     email: str
     phone: str
     group_name: str
-    speciality_name: str = Field(..., alias="specialty_name")
+    specialty_name: str
     total_scheduled: int
     attendance_percent: float
     university: Optional[UniversityInfo] = None
-
-    class Config:
-        populate_by_name = True  # разрешает создавать объект, используя имена полей
 
 class ReportResponse(BaseModel):
     students: List[StudentReport]

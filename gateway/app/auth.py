@@ -26,7 +26,7 @@ users_db = {
         "username": "admin",
         "full_name": "Admin User",
         "email": "admin@example.com",
-        "hashed_password": hash_password("secret"),   # хэшируем при старте
+        "hashed_password": hash_password("secret"),
         "disabled": False,
     }
 }
