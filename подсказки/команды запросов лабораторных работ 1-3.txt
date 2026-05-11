@@ -9,11 +9,6 @@ $token = (curl.exe -X POST http://localhost:8000/token -H "Content-Type: applica
 -H "Content-Type: application/x-www-form-urlencoded" – HTTP‑заголовок, указывающий, что тело запроса закодировано как веб‑форма (пары ключ=значение, разделённые &)
 ConvertFrom-Json – считывание JSON-ответа в объект для последующего извлечения access_token
 
---------- 3. Запустить генерацию данных (в одной из лаб) ---------
-curl.exe -X POST http://localhost:8000/api/lab1/generate -H "Authorization: Bearer $token"
-curl.exe -X POST http://localhost:8000/api/lab2/generate -H "Authorization: Bearer $token"
-curl.exe -X POST http://localhost:8000/api/lab3/generate -H "Authorization: Bearer $token"
-
 --------- 1 лаба - Запросить отчёт ---------
 $term = [uri]::EscapeDataString("база")
 $url = "http://localhost:8000/api/lab1/report?term=$term&start_date=2024-09-01&end_date=2026-12-24"

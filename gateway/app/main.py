@@ -81,46 +81,6 @@ async def login(
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
-# Прокси-запрос к генератору lab1: получение собственного токена -> отправка запрос через mTLS-клиент. Пользователь должен быть аутентифицирован
-@app.post("/api/lab1/generate")
-async def generate_data_lab1(current_user: User = Depends(get_current_active_user)):
-    """Запуск генерации тестовых данных во все БД"""
-    token = await get_service_token("lab1-service", "lab1-secret")
-    headers = {"Authorization": f"Bearer {token}"}
-    async with get_mtls_client() as client:
-        try:
-            resp = await client.post(f"{LAB_SERVICE_URL}{LAB1_PATH}/generate", headers=headers, timeout=600.0)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"Lab1 service error: {str(e)}")
-
-@app.post("/api/lab2/generate")
-async def generate_data_lab2(current_user: User = Depends(get_current_active_user)):
-    """Запуск генерации тестовых данных во все БД"""
-    token = await get_service_token("lab2-service", "lab2-secret")
-    headers = {"Authorization": f"Bearer {token}"}
-    async with get_mtls_client() as client:
-        try:
-            resp = await client.post(f"{LAB_SERVICE_URL}{LAB2_PATH}/generate", headers=headers, timeout=600.0)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"Lab2 service error: {str(e)}")
-
-@app.post("/api/lab3/generate")
-async def generate_data_lab2(current_user: User = Depends(get_current_active_user)):
-    """Запуск генерации тестовых данных во все БД"""
-    token = await get_service_token("lab3-service", "lab3-secret")
-    headers = {"Authorization": f"Bearer {token}"}
-    async with get_mtls_client() as client:
-        try:
-            resp = await client.post(f"{LAB_SERVICE_URL}{LAB3_PATH}/generate", headers=headers, timeout=600.0)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"Lab3 service error: {str(e)}")
-
 # Прокси-запрос к поиску данных lab1: получение собственного токена -> отправка запрос через mTLS-клиент. Пользователь должен быть аутентифицирован
 @app.post("/api/lab1/report")
 async def get_report(term: str, start_date: str, end_date: str, current_user: User = Depends(get_current_active_user)):

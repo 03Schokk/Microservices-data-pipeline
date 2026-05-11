@@ -1,5 +1,5 @@
 """
-lab123_service - generator.py
+generator - generator.py
 
 Генерирует несколько семестров (осень 2024 - весна 2026)
 """
@@ -21,6 +21,14 @@ from db_config import (
 )
 
 fake = Faker('ru_RU')
+
+POSTGRES_CONFIG = {
+    'host': 'postgresql',
+    'port': 5432,
+    'database': 'testdb',
+    'user': 'admin',
+    'password': 'admin123'
+}
 
 # ------------------ Генерация данных ------------------
 def generate_universities():
@@ -243,8 +251,8 @@ def generate_attendance(schedules, students):
             })
     return attendance
 
-# ------------------ Очистка БД ------------------
-def clear_databases():
+# ------------------ Очистка PostgreSQL ------------------
+def clear_database():
     # PostgreSQL
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     conn.autocommit = True
@@ -253,39 +261,8 @@ def clear_databases():
     cur.close()
     conn.close()
 
-    # Redis
-    r = redis.Redis(**REDIS_CONFIG)
-    r.flushdb()
-
-    # MongoDB
-    client = pymongo.MongoClient(
-        host=MONGO_CONFIG['host'],
-        port=MONGO_CONFIG['port'],
-        username=MONGO_CONFIG['username'],
-        password=MONGO_CONFIG['password'],
-        authSource=MONGO_CONFIG['authSource']
-    )
-    client.drop_database(MONGO_CONFIG['database'])
-    client.close()
-
-    # Neo4j
-    driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
-    with driver.session() as session:
-        session.run("MATCH (n) DETACH DELETE n")
-    driver.close()
-
-    # Elasticsearch
-    es = Elasticsearch(
-        hosts=[f'http://{ELASTICSEARCH_CONFIG["host"]}:{ELASTICSEARCH_CONFIG["port"]}'],
-        basic_auth=(ELASTICSEARCH_CONFIG['user'], ELASTICSEARCH_CONFIG['password']),
-        verify_certs=False,
-        request_timeout=60
-    )
-    if es.indices.exists(index='materials'):
-        es.indices.delete(index='materials')
-
 # ------------------ Заполнение PostgreSQL ------------------
-def create_tables_postgresql():
+def create_tables():
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     conn.autocommit = True
     cur = conn.cursor()
@@ -481,10 +458,20 @@ def create_tables_postgresql():
             FOR VALUES FROM ('{week_start.isoformat()}') TO ('{week_end.isoformat()}')
         """)
 
+    # создание слота репликации, если не существует
+    cur.execute("SELECT slot_name FROM pg_replication_slots WHERE slot_name = 'debezium'")
+    if cur.fetchone() is None:
+        cur.execute("SELECT pg_create_logical_replication_slot('debezium', 'wal2json')")
+    
+    # создание публикации, если не существует
+    cur.execute("SELECT pubname FROM pg_publication WHERE pubname = 'pub'")
+    if cur.fetchone() is None:
+        cur.execute("CREATE PUBLICATION pub FOR ALL TABLES")
+
     cur.close()
     conn.close()
 
-def fill_postgresql(data):
+def fill_tables(data):
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     conn.autocommit = True
     cur = conn.cursor()
@@ -553,234 +540,11 @@ def fill_postgresql(data):
     cur.close()
     conn.close()
 
-# ------------------ Redis ------------------
-def fill_redis(students):
-    r = redis.Redis(**REDIS_CONFIG)
-    pipe = r.pipeline()
-    for student in students:
-        key = f"student:{student['student_card_number']}"
-        value = {
-            'id': str(student['id']),
-            'first_name': student['first_name'],
-            'last_name': student['last_name'],
-            'patronymic': student['patronymic'],
-            'email': student['email'],
-            'phone': student['phone'],
-            'student_card_number': student['student_card_number'],
-            'group_id': str(student['group_id']),
-            'enrollment_date': student['enrollment_date'].isoformat(),
-            'status': student['status']
-        }
-        pipe.hset(key, mapping=value)
-        if len(pipe) >= 100:
-            pipe.execute()
-            pipe = r.pipeline()
-    pipe.execute()
-
-# ------------------ MongoDB ------------------
-def fill_mongodb(data):
-    client = pymongo.MongoClient(
-        host=MONGO_CONFIG['host'],
-        port=MONGO_CONFIG['port'],
-        username=MONGO_CONFIG['username'],
-        password=MONGO_CONFIG['password']
-    )
-    db = client[MONGO_CONFIG['database']]
-
-    university = data['universities'][0]
-    institutes = []
-    for inst in data['institutes']:
-        departments = [d for d in data['departments'] if d['institute_id'] == inst['id']]
-        departments_list = []
-        for dept in departments:
-            dept_specs = [ds for ds in data['department_specialties'] if ds['department_id'] == dept['id']]
-            specialties_for_dept = []
-            for ds in dept_specs:
-                specialty = next((s for s in data['specialties'] if s['id'] == ds['specialty_id']), None)
-                if specialty:
-                    specialties_for_dept.append({
-                        'id': str(specialty['id']),
-                        'name': specialty['name'],
-                        'code': specialty['code'],
-                        'degree_level': specialty['degree_level']
-                    })
-            departments_list.append({
-                '_id': str(dept['id']),
-                'institute_id': str(inst['id']),
-                'name': dept['name'],
-                'short_name': dept['short_name'],
-                'head': dept['head'],
-                'room': dept['room'],
-                'specialties': specialties_for_dept
-            })
-        institutes.append({
-            '_id': str(inst['id']),
-            'university_id': str(university['id']),
-            'name': inst['name'],
-            'short_name': inst['short_name'],
-            'dean': inst['dean'],
-            'departments': departments_list
-        })
-
-    mongo_doc = {
-        '_id': str(university['id']),
-        'name': university['name'],
-        'short_name': university['short_name'],
-        'address': university['address'],
-        'website': university['website'],
-        'founded_year': university['founded_year'],
-        'institutes': institutes
-    }
-    db.universities.insert_one(mongo_doc)
-    client.close()
-
-# ------------------ Neo4j ------------------
-def fill_neo4j(data):
-    driver = GraphDatabase.driver(NEO4J_CONFIG['uri'], auth=(NEO4J_CONFIG['user'], NEO4J_CONFIG['password']))
-    with driver.session() as session:
-        groups_params = [{"id": str(g['id']), "name": g['name']} for g in data['student_groups']]
-        session.run(
-            "UNWIND $groups AS g CREATE (:StudentGroup {id: g.id, name: g.name})",
-            groups=groups_params
-        )
-
-        students_params = [
-            {"id": str(s['id']), "card": s['student_card_number'], "group_id": str(s['group_id'])}
-            for s in data['students']
-        ]
-        session.run(
-            "UNWIND $students AS s "
-            "MATCH (g:StudentGroup {id: s.group_id}) "
-            "CREATE (st:Student {id: s.id, student_card_number: s.card}) "
-            "CREATE (g)-[:HAS_STUDENT]->(st)",
-            students=students_params
-        )
-
-        lectures_params = [
-            {"id": str(l['id']), "type": l['lecture_type'], "title": l['title']}
-            for l in data['lectures']
-        ]
-        session.run(
-            "UNWIND $lectures AS l CREATE (:Lecture {id: l.id, type: l.type, title: l.title})",
-            lectures=lectures_params
-        )
-
-        schedules_params = [
-            {
-                "id": str(sch['id']),
-                "group_id": str(sch['group_id']),
-                "lecture_id": str(sch['lecture_id']),
-                "date": sch['scheduled_date'].isoformat(),
-                "classroom": sch['classroom'],
-                "time": sch['start_time'].isoformat()
-            }
-            for sch in data['schedules']
-        ]
-        # Выполняем частями, чтобы не перегружать память
-        batch_size = 500
-        for i in range(0, len(schedules_params), batch_size):
-            batch = schedules_params[i:i+batch_size]
-            session.run(
-                "UNWIND $schedules AS sch "
-                "MATCH (g:StudentGroup {id: sch.group_id}) "
-                "MATCH (l:Lecture {id: sch.lecture_id}) "
-                "CREATE (sch_node:Schedule {id: sch.id, date: sch.date, classroom: sch.classroom, time: sch.time}) "
-                "CREATE (g)-[:HAS_SCHEDULE]->(sch_node) "
-                "CREATE (sch_node)-[:PART_OF]->(l)",
-                schedules=batch
-            )
-    driver.close()
-
-# ------------------ Elasticsearch ------------------
-def setup_elasticsearch():
-    es = Elasticsearch(
-        hosts=[f'http://{ELASTICSEARCH_CONFIG["host"]}:{ELASTICSEARCH_CONFIG["port"]}'],
-        basic_auth=(ELASTICSEARCH_CONFIG['user'], ELASTICSEARCH_CONFIG['password']),
-        verify_certs=False,
-        request_timeout=60
-    )
-    index_body = {
-        'settings': {
-            'number_of_shards': 1,    # фрагменты индекса
-            'number_of_replicas': 0,  # копии фрагментов
-            'analysis': {
-                'analyzer': {
-                    'russian_custom': {
-                        'type': 'custom',
-                        'tokenizer': 'standard',
-                        'filter': ['lowercase', 'russian_stop', 'russian_stemmer'] # разбиение предложения на слова
-                    }
-                },
-                'filter': {
-                    'russian_stop': {'type': 'stop', 'stopwords': '_russian_'},    # стоп слова для удаления (частицы, союзы)
-                    'russian_stemmer': {'type': 'stemmer', 'language': 'russian'}  # корни слов
-                }
-            }
-        },
-        'mappings': {
-            'properties': {
-                'id': {'type': 'keyword'},
-                'lecture_id': {'type': 'keyword'},
-                'title': {'type': 'text', 'analyzer': 'russian_custom'},
-                'content_text': {'type': 'text', 'analyzer': 'russian_custom'},
-                'content_type': {'type': 'keyword'},
-                'file_url': {'type': 'text', 'index': False},
-                'course_name': {'type': 'text', 'analyzer': 'russian_custom'},
-                'specialty_name': {'type': 'text', 'analyzer': 'russian_custom'},
-                'metadata': {'type': 'object', 'enabled': True},
-                'created_at': {'type': 'date'}
-            }
-        }
-    }
-    if not es.indices.exists(index='materials'):
-        es.indices.create(index='materials', body=index_body)
-
-def fill_elasticsearch(data):
-    es = Elasticsearch(
-        hosts=[f'http://{ELASTICSEARCH_CONFIG["host"]}:{ELASTICSEARCH_CONFIG["port"]}'],
-        basic_auth=(ELASTICSEARCH_CONFIG['user'], ELASTICSEARCH_CONFIG['password']),
-        verify_certs=False,
-        request_timeout=60
-    )
-    lectures_dict = {str(l['id']): l for l in data['lectures']}
-    courses_dict = {str(c['id']): c for c in data['lecture_courses']}
-    specialties_dict = {str(s['id']): s for s in data['specialties']}
-
-    actions = []
-    for material in data['lecture_materials']:
-        lecture = lectures_dict.get(str(material['lecture_id']))
-        if not lecture:
-            continue
-        course = courses_dict.get(str(lecture['course_id']))
-        if not course:
-            continue
-        doc = {
-            '_index': 'materials',
-            '_id': str(material['id']),
-            '_source': {
-                'id': str(material['id']),
-                'lecture_id': str(material['lecture_id']),
-                'title': material['title'],
-                'content_text': material['content_text'],
-                'content_type': material['content_type'],
-                'file_url': material['file_url'],
-                'course_name': course['name'],
-                'specialty_name': specialties_dict.get(str(course['specialty_id']), {}).get('name', ''),
-                'metadata': material['metadata'],
-                'created_at': datetime.now().isoformat()
-            }
-        }
-        actions.append(doc)
-
-    if actions:
-        success, _ = bulk(es, actions, chunk_size=500, request_timeout=60)
-        print(f"Elasticsearch: проиндексировано {success} документов")
-    es.indices.refresh(index='materials')
 
 def run_generation():
-    clear_databases()
-    create_tables_postgresql()
-    setup_elasticsearch()
+
+    clear_database()
+    create_tables()
 
     # Генерация базовых сущностей
     data = {}
@@ -847,22 +611,5 @@ def run_generation():
     data['attendance'] = all_attendance
 
     fill_postgresql(data)
-    fill_redis(data['students'])
-    fill_mongodb(data)
-    fill_neo4j(data)
-    fill_elasticsearch(data)
 
-    return {
-        "status": "success",
-        "students": len(data['students']),
-        "lectures": len(data['lectures']),
-        "student_groups": len(data['student_groups']),
-        "lecture_courses": len(data['lecture_courses']),
-        "lecture_materials": len(data['lecture_materials']),
-        "schedules": len(data['schedules']),
-        "attendance": len(data['attendance']),
-        "institutes": len(data['institutes']),
-        "departments": len(data['departments']),
-        "specialties": len(data['specialties']),
-        "department_specialties": len(data['department_specialties']),
-    }
+    print("Данные сгенерированы и загружены в PostgreSQL.")

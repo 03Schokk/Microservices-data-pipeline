@@ -3,28 +3,13 @@ lab1_service - main.py
 """
 
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
-import generator
 import search
 from datetime import date
 from auth import verify_service_token
 
 app = FastAPI(title="Lab1 Service")
-
-class GenerationResponse(BaseModel):
-    status: str
-    students: int
-    lectures: int
-    student_groups: int
-    lecture_courses: int
-    lecture_materials: int
-    schedules: int
-    attendance: int
-    institutes: int
-    departments: int
-    specialties: int
-    department_specialties: int
 
 class UniversityInfo(BaseModel):
     name: str
@@ -46,15 +31,6 @@ class StudentReport(BaseModel):
 
 class ReportResponse(BaseModel):
     students: List[StudentReport]
-
-# эндпоинт запуска генерации данных (защищён через verify_service_token)
-@app.post("/generate", response_model=GenerationResponse)
-async def generate(_ = Depends(verify_service_token)):
-    try:
-        result = generator.run_generation()
-        return GenerationResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # эндпоинт запуска поиска данных (защищён через verify_service_token)
 @app.post("/report", response_model=ReportResponse)

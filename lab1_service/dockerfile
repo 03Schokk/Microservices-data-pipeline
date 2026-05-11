@@ -4,11 +4,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# db_config + generator + зависимости
-COPY lab_shared/ .
+COPY lab1_service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Код сервиса
+COPY lab_shared/ .
 COPY lab1_service/app/ .
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

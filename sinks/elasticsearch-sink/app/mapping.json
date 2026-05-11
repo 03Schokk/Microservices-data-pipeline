@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "russian_custom": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "russian_stop", "russian_stemmer"]
+        }
+      },
+      "filter": {
+        "russian_stop": {
+          "type": "stop",
+          "stopwords": "_russian_"
+        },
+        "russian_stemmer": {
+          "type": "stemmer",
+          "language": "russian"
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id": {"type": "keyword"},
+      "lecture_id": {"type": "keyword"},
+      "title": {"type": "text", "analyzer": "russian_custom"},
+      "content_text": {"type": "text", "analyzer": "russian_custom"},
+      "content_type": {"type": "keyword"},
+      "file_url": {"type": "text", "index": false},
+      "course_name": {"type": "text", "analyzer": "russian_custom"},
+      "specialty_name": {"type": "text", "analyzer": "russian_custom"},
+      "metadata": {"type": "object", "enabled": true},
+      "created_at": {"type": "date"}
+    }
+  }
+}

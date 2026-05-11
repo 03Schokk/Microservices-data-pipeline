@@ -1,0 +1,23 @@
+--------- 1. Пересобрать и запустить всё с нуля ---------
+docker-compose down -v
+docker-compose up -d
+
+Дождиться, когда контейнер data-generator завершится (статус Exited (0))
+
+
+--------- 2. Проверить, что Kafka Connect зарегистрировал коннектор ---------
+curl.exe http://localhost:8083/connectors/postgres-connector/status
+
+Первый запуск коннектора выполняет начальный снапшот; дождаться состояния RUNNING
+
+
+--------- 3. Проверить топики dbserver.public.* с сообщениями Kafka через Kafka UI или через консоль ---------
+http://localhost:8084
+docker exec kafka kafka-topics --list --bootstrap-server kafka:9092
+
+
+--------- 4. Также можно проверить логи, что новые записи в Postgres фиксируются и синхронизируются в сторонних БД ---------
+docker logs redis-sink
+docker logs mongo-sink
+docker logs neo4j-sink
+docker logs еlasticsearch-sink

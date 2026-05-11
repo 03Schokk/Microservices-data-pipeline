@@ -1,5 +1,82 @@
 services:
-  # -------------------- Базы данных --------------------
+  # -------------------- Kafka c Zookeeper --------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - data-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - data-network
+
+  # -------------------- Kafka Connect с Debezium --------------------
+  kafka-connect:
+    image: debezium/connect:2.5.0.Final
+    depends_on:
+      - kafka
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      REST_PORT: 8083
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    ports:
+      - "8083:8083"
+    networks:
+      - data-network
+
+  # -------------------- Kafka UI --------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8084:8080"
+    networks:
+      - data-network
+
+  # -------------------- Генератор (только PostgreSQL) --------------------
+  data-generator:
+    build: ./generator
+    container_name: generator
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-connect:
+        condition: service_started
+    environment:
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: testdb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    networks:
+      - data-network
+  
+  # -------------------- Базы данных c sink-ами --------------------
   redis:
     image: redis:7-alpine
     container_name: redis-server
@@ -17,6 +94,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  redis-sink:
+    build: ./sinks/redis-sink
+    container_name: redis-sink
+    depends_on:
+      - kafka
+      - redis
+    environment:
+      KAFKA_BROKER: kafka:9092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    networks:
+      - data-network
 
   mongodb:
     image: mongo:6
@@ -38,6 +128,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  mongodb-sink:
+    build: ./sinks/mongodb-sink
+    container_name: mongodb-sink
+    depends_on:
+      kafka:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: kafka:9092
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+      MONGO_USER: admin
+      MONGO_PASSWORD: admin123
+      MONGO_DB: testdb
+      TOPICS: dbserver.public.university,dbserver.public.institute,dbserver.public.department,dbserver.public.specialty,dbserver.public.department_specialties
+    networks:
+      - data-network
 
   neo4j:
     image: neo4j:5-community
@@ -62,7 +171,25 @@ services:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 60s
+
+  neo4j-sink:
+    build: ./sinks/neo4j-sink
+    container_name: neo4j-sink
+    depends_on:
+      kafka:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: kafka:9092
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password123
+      TOPICS: dbserver.public.student_group,dbserver.public.student,dbserver.public.lecture,dbserver.public.schedule
+    networks:
+      - data-network
 
   elasticsearch:
     image: elasticsearch:8.11.1
@@ -93,7 +220,26 @@ services:
       test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/9200' || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 60s
+
+  elasticsearch-sink:
+    build: ./sinks/elasticsearch-sink
+    container_name: elasticsearch-sink
+    depends_on:
+      kafka:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: kafka:9092
+      ES_HOST: elasticsearch
+      ES_PORT: 9200
+      ES_USER: elastic
+      ES_PASSWORD: elastic_pass123
+      ES_INDEX: materials
+    networks:
+      - data-network
 
   postgresql:
     image: postgres:15-alpine
@@ -110,14 +256,54 @@ services:
       POSTGRES_DB: testdb
       POSTGRES_INITDB_ARGS: "--data-checksums"
     command: >
-      postgres -c listen_addresses='*' -c log_directory='/var/log/postgresql' -c max_connections=200
+      postgres -c listen_addresses='*' -c log_directory='/var/log/postgresql' -c max_connections=200 -c wal_level=logical
     networks:
       - data-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d testdb"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  # -------------------- Debezium Setup (однократный запуск) --------------------
+  connect-setup:
+    image: curlimages/curl:latest
+    depends_on:
+      kafka-connect:
+        condition: service_started
+      postgresql:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Kafka Connect REST API at kafka-connect:8083/connectors..."
+        while ! curl -s -o /dev/null -w "%{http_code}" http://kafka-connect:8083/connectors | grep -q 200; do
+          sleep 2
+        done
+        echo "REST API is ready. Registering Debezium PostgreSQL connector..."
+        curl -X POST http://kafka-connect:8083/connectors \
+          -H "Content-Type: application/json" \
+          -d '{
+            "name": "postgres-connector",
+            "config": {
+              "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+              "tasks.max": "1",
+              "database.hostname": "postgresql",
+              "database.port": "5432",
+              "database.user": "admin",
+              "database.password": "admin123",
+              "database.dbname": "testdb",
+              "topic.prefix": "dbserver",
+              "plugin.name": "pgoutput",
+              "slot.name": "debezium",
+              "publication.name": "pub",
+              "table.include.list": "public.*",
+              "snapshot.mode": "initial"
+            }
+          }'
+        echo "Setup complete."
+    networks:
+      - data-network
 
   # -------------------- Генератор сертификатов --------------------
   # запускается один раз, генерирует сертификаты, вырубается, после чего сертификаты используются в других контейнерах
@@ -178,7 +364,7 @@ services:
     container_name: lab1-service
     restart: unless-stopped
     expose:
-      - "8001" # порты наружу можно не пробрасывать, только внутренняя сеть
+      - "8001" # только внутренняя сеть
     environment:
       - POSTGRES_HOST=postgresql
       - POSTGRES_PORT=5432
@@ -221,7 +407,7 @@ services:
     container_name: lab2-service
     restart: unless-stopped
     expose:
-      - "8002" # порты наружу можно не пробрасывать, только внутренняя сеть
+      - "8002" # только внутренняя сеть
     environment:
       - POSTGRES_HOST=postgresql
       - POSTGRES_PORT=5432
@@ -264,7 +450,7 @@ services:
     container_name: lab3-service
     restart: unless-stopped
     expose:
-      - "8003" # порты наружу можно не пробрасывать, только внутренняя сеть
+      - "8003" # только внутренняя сеть
     environment:
       - POSTGRES_HOST=postgresql
       - POSTGRES_PORT=5432

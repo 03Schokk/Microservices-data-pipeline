@@ -1,6 +1,0 @@
-psycopg2-binary
-redis
-pymongo
-neo4j
-elasticsearch==8.11.0
-faker
