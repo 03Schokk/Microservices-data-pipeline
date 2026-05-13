@@ -1,7 +1,7 @@
-import os, json, threading, time
-from collections import defaultdict
-import pymongo
 from confluent_kafka import Consumer
+import pymongo
+from collections import defaultdict
+import os, json, threading, time
 
 MONGO_HOST = os.getenv('MONGO_HOST', 'mongodb')
 MONGO_PORT = int(os.getenv('MONGO_PORT', 27017))
@@ -32,16 +32,20 @@ def rebuild_mongo_doc():
         univ = list(state['university'].values())
         if not univ:
             return
-        univ = univ[0]
+
+        univ = univ[0]           # единственный университет
         univ['_id'] = univ['id']
-        # копируем данные
+
+        # копирование данных
         institutes = []
         for inst in state['institute'].values():
             inst_doc = {**inst, '_id': inst['id']}
+
             depts = []
             for dept in state['department'].values():
-                if dept.get('institute_id') == inst['id']:
+                if dept.get('institute_id') == inst['id']: # кафедра принадлежит институту
                     dept_doc = {**dept, '_id': dept['id']}
+
                     specialties = []
                     for ds in state['department_specialties']:
                         if ds.get('department_id') == dept['id']:
@@ -53,37 +57,46 @@ def rebuild_mongo_doc():
                                     'code': spec.get('code'),
                                     'degree_level': spec.get('degree_level')
                                 })
+
                     dept_doc['specialties'] = specialties
                     depts.append(dept_doc)
+
             inst_doc['departments'] = depts
             institutes.append(inst_doc)
+
         univ['institutes'] = institutes
         db.universities.replace_one({'_id': univ['_id']}, univ, upsert=True)
+
         print("MongoDB document updated.")
 
 def process_message(topic, payload):
     op = payload.get('op')
-    after = payload.get('after', {})
-    before = payload.get('before', {})
-    table = topic.split('.')[-1]
+    table = topic.split('.')[-1] # "dbserver.public.university" -> "university"
+    tables = ('university', 'institute', 'department', 'specialty')
 
     with lock:
         if op in ('c', 'r', 'u'):
-            if table in ('university', 'institute', 'department', 'specialty'):
+            if table in tables:
+                after = payload.get('after', {})
                 state[table][after['id']] = after
+
             elif table == 'department_specialties':
                 pass # полная пересборка списка
+
         elif op == 'd':
-            if table in ('university', 'institute', 'department', 'specialty'):
+            if table in tables:
+                before = payload.get('before', {})
                 state[table].pop(before['id'], None)
-    # перестраиваем при любом изменении
+
+    # перестроение при любом изменении (поскольку институт один)
     rebuild_mongo_doc()
 
 consumer = Consumer({
     'bootstrap.servers': os.getenv('KAFKA_BROKER', 'kafka:9092'),
-    'group.id': 'mongo-sink',
+    'group.id': 'mongodb-sink',
     'auto.offset.reset': 'earliest'
 })
+
 consumer.subscribe([
     'dbserver.public.university',
     'dbserver.public.institute',
@@ -100,6 +113,9 @@ while True:
     if msg.error():
         print(f"Consumer error: {msg.error()}")
         continue
+
     value = json.loads(msg.value().decode('utf-8'))
+
     process_message(msg.topic(), value.get('payload', {}))
+
     consumer.commit(msg)

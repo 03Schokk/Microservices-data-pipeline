@@ -1,5 +1,6 @@
 services:
-  # -------------------- Kafka c Zookeeper --------------------
+  # -------------------- Kafka-брокер c Zookeeper --------------------
+  # Мониторит, какие брокеры живы, кто является лидером для каждой партиции и т.д.
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     environment:
@@ -8,6 +9,7 @@ services:
     networks:
       - data-network
 
+  # Сохраняет сообщения на диске (по партициям) и раздаёт их всем заинтересованным потребителям
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
@@ -20,7 +22,8 @@ services:
     networks:
       - data-network
 
-  # -------------------- Kafka Connect с Debezium --------------------
+  # -------------------- Kafka Connect с Debezium (producer) --------------------
+  # Читает изменения из PostgreSQL и отправляет их в определённый топик Kafka-брокер
   kafka-connect:
     image: debezium/connect:2.5.0.Final
     depends_on:
@@ -44,6 +47,7 @@ services:
       - data-network
 
   # -------------------- Kafka UI --------------------
+  # Визуальный мониторинг за состояниями брокера, потребителей и топиков
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     depends_on:
@@ -56,7 +60,7 @@ services:
     networks:
       - data-network
 
-  # -------------------- Генератор (только PostgreSQL) --------------------
+  # -------------------- Генератор данных (только PostgreSQL) --------------------
   data-generator:
     build: ./generator
     container_name: generator
@@ -73,10 +77,11 @@ services:
       POSTGRES_DB: testdb
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin123
+      PYTHONUNBUFFERED: 1
     networks:
       - data-network
   
-  # -------------------- Базы данных c sink-ами --------------------
+  # -------------------- Базы данных c их потребителями (sink) --------------------
   redis:
     image: redis:7-alpine
     container_name: redis-server
@@ -105,6 +110,7 @@ services:
       KAFKA_BROKER: kafka:9092
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PYTHONUNBUFFERED: 1
     networks:
       - data-network
 
@@ -127,7 +133,8 @@ services:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 60s
 
   mongodb-sink:
     build: ./sinks/mongodb-sink
@@ -144,7 +151,7 @@ services:
       MONGO_USER: admin
       MONGO_PASSWORD: admin123
       MONGO_DB: testdb
-      TOPICS: dbserver.public.university,dbserver.public.institute,dbserver.public.department,dbserver.public.specialty,dbserver.public.department_specialties
+      PYTHONUNBUFFERED: 1
     networks:
       - data-network
 
@@ -187,7 +194,7 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: password123
-      TOPICS: dbserver.public.student_group,dbserver.public.student,dbserver.public.lecture,dbserver.public.schedule
+      PYTHONUNBUFFERED: 1
     networks:
       - data-network
 
@@ -207,6 +214,8 @@ services:
       - xpack.security.http.ssl.enabled=false
       - discovery.type=single-node
       - ELASTIC_PASSWORD=elastic_pass123
+      - cluster.routing.allocation.disk.watermark.low=90%
+      - cluster.routing.allocation.disk.watermark.high=95%
     ulimits:
       memlock:
         soft: -1
@@ -238,6 +247,7 @@ services:
       ES_USER: elastic
       ES_PASSWORD: elastic_pass123
       ES_INDEX: materials
+      PYTHONUNBUFFERED: 1
     networks:
       - data-network
 

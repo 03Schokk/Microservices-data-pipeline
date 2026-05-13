@@ -1,38 +1,13 @@
-import os, json
-from neo4j import GraphDatabase
 from confluent_kafka import Consumer
+from neo4j import GraphDatabase
 from datetime import datetime, timedelta, timezone
+import os, json
 
 uri = os.getenv('NEO4J_URI', 'bolt://neo4j:7687')
 driver = GraphDatabase.driver(uri, auth=(
     os.getenv('NEO4J_USER', 'neo4j'),
     os.getenv('NEO4J_PASSWORD', 'password123')
 ))
-
-def process_student_group(after, op):
-    with driver.session() as s:
-        if op in ('c', 'r', 'u'):
-            s.run("MERGE (g:StudentGroup {id: $id}) SET g.name = $name",
-                  id=after['id'], name=after['name'])
-        elif op == 'd':
-            s.run("MATCH (g:StudentGroup {id: $id}) DETACH DELETE g", id=after['id'])
-
-def process_student(after, op):
-    with driver.session() as s:
-        if op in ('c', 'r', 'u'):
-            s.run("MERGE (s:Student {id: $id}) SET s.student_card_number = $card "
-                  "WITH s MATCH (g:StudentGroup {id: $gid}) MERGE (g)-[:HAS_STUDENT]->(s)",
-                  id=after['id'], card=after['student_card_number'], gid=after['group_id'])
-        elif op == 'd':
-            s.run("MATCH (s:Student {id: $id}) DETACH DELETE s", id=after['id'])
-
-def process_lecture(after, op):
-    with driver.session() as s:
-        if op in ('c', 'r', 'u'):
-            s.run("MERGE (l:Lecture {id: $id}) SET l.type = $type, l.title = $title",
-                  id=after['id'], type=after['lecture_type'], title=after['title'])
-        elif op == 'd':
-            s.run("MATCH (l:Lecture {id: $id}) DETACH DELETE l", id=after['id'])
 
 def days_to_date_str(days):
     """Преобразует целое число дней от 1970-01-01 в строку YYYY-MM-DD"""
@@ -46,26 +21,67 @@ def nano_to_time_str(nano):
     minutes = int((total_seconds % 3600) // 60)
     return f"{hours:02d}:{minutes:02d}"
 
+def process_student_group(after, op):
+    with driver.session() as s:
+        if op in ('c', 'r', 'u'):
+            s.run("MERGE (g:StudentGroup {id: $id}) SET g.name = $name", id=after['id'], name=after['name'])
+            print(f"Neo4j updated: StudentGroup {after['name']} ({after['id']})")
+
+        elif op == 'd':
+            s.run("MATCH (g:StudentGroup {id: $id}) DETACH DELETE g", id=after['id'])
+            print(f"Neo4j deleted: StudentGroup {after['id']}")
+
+def process_student(after, op):
+    with driver.session() as s:
+        if op in ('c', 'r', 'u'):
+            s.run(
+                "MERGE (s:Student {id: $id}) SET s.student_card_number = $card "
+                "WITH s MATCH (g:StudentGroup {id: $gid}) MERGE (g)-[:HAS_STUDENT]->(s)",
+                id=after['id'], card=after['student_card_number'], gid=after['group_id']
+            )
+            print(f"Neo4j updated: Student {after['student_card_number']} ({after['id']})")
+
+        elif op == 'd':
+            s.run("MATCH (s:Student {id: $id}) DETACH DELETE s", id=after['id'])
+            print(f"Neo4j deleted: Student {after['id']}")
+
+def process_lecture(after, op):
+    with driver.session() as s:
+        if op in ('c', 'r', 'u'):
+            s.run(
+                "MERGE (l:Lecture {id: $id}) SET l.type = $type, l.title = $title",
+                id=after['id'], type=after['lecture_type'], title=after['title']
+            )
+            print(f"Neo4j updated: Lecture '{after['title']}' ({after['id']})")
+
+        elif op == 'd':
+            s.run("MATCH (l:Lecture {id: $id}) DETACH DELETE l", id=after['id'])
+            print(f"Neo4j deleted: Lecture {after['id']}")
+
 def process_schedule(after, op):
     with driver.session() as s:
         if op in ('c', 'r', 'u'):
-            # Конвертируем числовые поля в строки
             date_val = after.get('scheduled_date')
             time_val = after.get('start_time')
             date_str = days_to_date_str(date_val) if isinstance(date_val, int) else date_val
             time_str = nano_to_time_str(time_val) if isinstance(time_val, int) else time_val
 
-            s.run("MERGE (sch:Schedule {id: $id}) "
-                  "SET sch.date = $date, sch.classroom = $classroom, sch.time = $time "
-                  "WITH sch "
-                  "MATCH (g:StudentGroup {id: $gid}) "
-                  "MATCH (l:Lecture {id: $lid}) "
-                  "MERGE (g)-[:HAS_SCHEDULE]->(sch) "
-                  "MERGE (sch)-[:PART_OF]->(l)",
-                  id=after['id'], date=date_str, classroom=after['classroom'],
-                  time=time_str, gid=after['group_id'], lid=after['lecture_id'])
+            s.run(
+                "MERGE (sch:Schedule {id: $id}) "
+                "SET sch.date = $date, sch.classroom = $classroom, sch.time = $time "
+                "WITH sch "
+                "MATCH (g:StudentGroup {id: $gid}) "
+                "MATCH (l:Lecture {id: $lid}) "
+                "MERGE (g)-[:HAS_SCHEDULE]->(sch) "
+                "MERGE (sch)-[:PART_OF]->(l)",
+                id=after['id'], date=date_str, classroom=after['classroom'],
+                time=time_str, gid=after['group_id'], lid=after['lecture_id']
+            )
+            print(f"Neo4j updated: Schedule {after['id']} (date={date_str}, time={time_str})")
+
         elif op == 'd':
             s.run("MATCH (sch:Schedule {id: $id}) DETACH DELETE sch", id=after['id'])
+            print(f"Neo4j deleted: Schedule {after['id']}")
 
 handlers = {
     'dbserver.public.student_group': process_student_group,
@@ -89,11 +105,14 @@ while True:
     if msg.error():
         print(f"Consumer error: {msg.error()}")
         continue
+
     value = json.loads(msg.value().decode('utf-8'))
     payload = value.get('payload', {})
     op = payload.get('op')
     after = payload.get('after', {})
     handler = handlers.get(msg.topic())
+
     if handler:
-        handler(after or payload.get('before', {}), op)
+        handler(after or payload.get('before', {}), op) # before перехватывается только здесь, поэтому он не в переменных
+
     consumer.commit(msg)

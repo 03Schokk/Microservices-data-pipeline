@@ -9,16 +9,6 @@ from datetime import datetime, timedelta, date
 from faker import Faker
 import psycopg2
 from psycopg2.extras import execute_values
-import redis
-import pymongo
-from neo4j import GraphDatabase
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import bulk
-
-from db_config import (
-    POSTGRES_CONFIG, REDIS_CONFIG, MONGO_CONFIG,
-    NEO4J_CONFIG, ELASTICSEARCH_CONFIG
-)
 
 fake = Faker('ru_RU')
 
@@ -251,9 +241,8 @@ def generate_attendance(schedules, students):
             })
     return attendance
 
-# ------------------ Очистка PostgreSQL ------------------
+# ------------------ Очистка ------------------
 def clear_database():
-    # PostgreSQL
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     conn.autocommit = True
     cur = conn.cursor()
@@ -261,7 +250,7 @@ def clear_database():
     cur.close()
     conn.close()
 
-# ------------------ Заполнение PostgreSQL ------------------
+# ------------------ Заполнение ------------------
 def create_tables():
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     conn.autocommit = True
@@ -550,30 +539,39 @@ def run_generation():
     data = {}
 
     data['universities'] = generate_universities()
+    print("Сгенерированы данные по университетам")
 
     data['institutes'] = generate_institutes(data['universities'][0]['id'])
+    print("Сгенерированы данные по институтам")
 
     institute_ids = [i['id'] for i in data['institutes']]
     data['departments'] = generate_departments(institute_ids)
+    print("Сгенерированы данные по кафедрам")
 
     department_ids = [d['id'] for d in data['departments']]
     data['specialties'] = generate_specialties()
+    print("Сгенерированы данные по специальностям")
 
     specialty_ids = [s['id'] for s in data['specialties']]
     data['department_specialties'] = generate_department_specialties(department_ids, specialty_ids)
+    print("Сгенерированы связки кафедр со специальностями")
 
     data['lecture_courses'] = generate_lecture_courses(specialty_ids)
+    print("Сгенерированы список лекций по семестрам")
 
     course_ids = [c['id'] for c in data['lecture_courses']]
     data['lectures'] = generate_lectures(course_ids)
+    print("Сгенерированы данные по лекциям")
     
     lecture_ids = [l['id'] for l in data['lectures']]
     data['lecture_materials'] = generate_lecture_materials(lecture_ids)
+    print("Сгенерированы данные материалов лекций")
 
     data['student_groups'] = generate_student_groups(specialty_ids)
 
     group_ids = [g['id'] for g in data['student_groups']]
     data['students'] = generate_students(group_ids)
+    print("Сгенерированы данные по студентам")
 
     # Настройка семестров: периоды и соответствующие номера семестров
     semesters_config = [
@@ -591,7 +589,7 @@ def run_generation():
         lecture_by_course.setdefault(str(lec['course_id']), []).append(lec['id'])
 
     for semester_name, start_d, end_d, active_semesters in semesters_config:
-        print(f"Генерация расписания для {semester_name} ({start_d} – {end_d})")
+        print(f"Генерация расписания для {semester_name} ({start_d} – {end_d})...")
 
         # отбираем лекции, чьи курсы принадлежат одному из активных семестров
         active_lecture_ids = []
@@ -610,6 +608,6 @@ def run_generation():
     data['schedules'] = all_schedules
     data['attendance'] = all_attendance
 
-    fill_postgresql(data)
+    fill_tables(data)
 
-    print("Данные сгенерированы и загружены в PostgreSQL.")
+    print("Данные сгенерированы и загружены в PostgreSQL")

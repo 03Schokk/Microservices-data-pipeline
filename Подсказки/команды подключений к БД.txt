@@ -1,0 +1,18 @@
+REDIS:
+docker exec -it redis-server redis-cli --raw
+
+
+MONGODB:
+docker exec -it mongodb-server mongosh -u admin -p admin123
+
+
+NEO4J:
+docker exec -it neo4j-server cypher-shell -u neo4j -p password123 -a bolt://localhost:7687
+
+
+ELASTICSEARCH (проверка статуса работы):
+http://localhost:20000/_cluster/health?pretty
+
+
+POSTGRESQL:
+docker exec -it postgresql-server psql -U admin -d testdb

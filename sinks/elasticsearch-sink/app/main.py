@@ -1,6 +1,6 @@
-import os, json
-from elasticsearch import Elasticsearch
 from confluent_kafka import Consumer
+from elasticsearch import Elasticsearch
+import os, json
 
 es = Elasticsearch(
     hosts=[f"http://{os.getenv('ES_HOST', 'elasticsearch')}:{os.getenv('ES_PORT', '9200')}"],
@@ -35,7 +35,7 @@ lectures = {}        # lecture_id -> { course_id, ... }
 courses = {}         # course_id   -> { name, specialty_id }
 specialties = {}     # specialty_id -> { name }
 
-print("Elasticsearch sink started (multi-topic join)...")
+print("Elasticsearch sink started...")
 while True:
     msg = consumer.poll(1.0)
     if msg is None:
@@ -47,66 +47,61 @@ while True:
     topic = msg.topic()
     value = json.loads(msg.value().decode('utf-8'))
     payload = value.get('payload', {})
-    op = payload.get('op')
-    after = payload.get('after', {}) or {}
-    before = payload.get('before', {}) or {}
 
-    # ── Обновление кэша ──
+    op = payload.get('op')
+    before = payload.get('before', {})
+    after = payload.get('after', {})
+
+    # Обновление кэша лекций
     if topic == 'dbserver.public.lecture':
         if op in ('c', 'r', 'u'):
             lectures[after['id']] = after
         elif op == 'd':
             lectures.pop(before['id'], None)
-        # При любом изменении лекции пересчитываем все связанные материалы
-        # (для простоты переиндексируем все материалы этой лекции)
-        continue   # индексация триггерится при получении материала
-
+        continue # только кэширование, индексация позже
+    
+    # Обновление кэша курсов
     elif topic == 'dbserver.public.lecture_course':
         if op in ('c', 'r', 'u'):
             courses[after['id']] = after
         elif op == 'd':
             courses.pop(before['id'], None)
-        # При изменении курса тоже пересчитаем связанные материалы,
-        # которые придут позже или перезапросим (см. ниже)
         continue
-
+    
+    # Обновление кэша специальностей
     elif topic == 'dbserver.public.specialty':
         if op in ('c', 'r', 'u'):
             specialties[after['id']] = after
         elif op == 'd':
             specialties.pop(before['id'], None)
         continue
-
-    # ── Обработка lecture_material ──
+    
+    # Индексация материала
     if topic == 'dbserver.public.lecture_material':
         material_id = after.get('id') or before.get('id')
         if not material_id:
             continue
 
         if op == 'd':
-            # Удаление из ES
             es.delete(index=INDEX, id=material_id, ignore=[404])
-            print(f"ES deleted: {material_id}")
+            print(f"ElasticSearch deleted: {material_id}")
             consumer.commit(msg)
             continue
 
-        # Сборка полного документа
         lecture = lectures.get(after.get('lecture_id'))
         if not lecture:
-            # Если лекция ещё не пришла, отложим (или пропустим)
-            # В рабочем варианте можно запросить из PG или повторить позже
-            continue
+            continue # лекция ещё не пришла - пропуск
 
         course = courses.get(lecture.get('course_id'))
         if not course:
-            continue
+            continue # курс ещё не пришёл - пропуск
 
         specialty_name = specialties.get(course.get('specialty_id'), {}).get('name', '')
 
         metadata_raw = after.get('metadata', {})
         if isinstance(metadata_raw, str):
             try:
-                metadata = json.loads(metadata_raw)
+                metadata = json.loads(metadata_raw) # из JSONB в string
             except json.JSONDecodeError:
                 metadata = {}
         else:
@@ -126,6 +121,6 @@ while True:
         }
 
         es.index(index=INDEX, id=after['id'], body=doc)
-        print(f"ES indexed: {after['id']}")
+        print(f"ElasticSearch indexed: {after['id']}")
 
     consumer.commit(msg)

@@ -1,7 +1,6 @@
-import os
-import json
-import redis
 from confluent_kafka import Consumer
+import redis
+import os, json
 
 r = redis.Redis(
     host=os.getenv('REDIS_HOST', 'redis'),
@@ -27,9 +26,17 @@ while True:
 
     value = json.loads(msg.value().decode('utf-8'))
     payload = value.get('payload', {})
+
+    # Формат payload из value:
+    # "payload": {
+    #     "op": "c",           // операция: c=create, r=read, u=update, d=delete
+    #     "before": {...},     // данные до изменения (для update/delete)
+    #     "after": {...}       // данные после изменения (для create/read/update)
+    # }
+
     op = payload.get('op')
-    after = payload.get('after', {})
     before = payload.get('before', {})
+    after = payload.get('after', {})
 
     card = after.get('student_card_number') or before.get('student_card_number')
     if not card:
