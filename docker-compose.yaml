@@ -507,71 +507,71 @@ volumes:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/redis
+      device: D:/Docker/Containers/Microservices-data-pipeline/redis
       o: bind
   redis_logs:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/logs/redis
+      device: D:/Docker/Containers/Microservices-data-pipeline/logs/redis
       o: bind
   mongodb_data:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/mongodb
+      device: D:/Docker/Containers/Microservices-data-pipeline/mongodb
       o: bind
   mongodb_logs:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/logs/mongodb
+      device: D:/Docker/Containers/Microservices-data-pipeline/logs/mongodb
       o: bind
   neo4j_data:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/neo4j/data
+      device: D:/Docker/Containers/Microservices-data-pipeline/neo4j/data
       o: bind
   neo4j_logs:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/neo4j/logs
+      device: D:/Docker/Containers/Microservices-data-pipeline/neo4j/logs
       o: bind
   neo4j_import:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/neo4j/import
+      device: D:/Docker/Containers/Microservices-data-pipeline/neo4j/import
       o: bind
   neo4j_plugins:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/neo4j/plugins
+      device: D:/Docker/Containers/Microservices-data-pipeline/neo4j/plugins
       o: bind
   elasticsearch_data:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/elasticsearch/data
+      device: D:/Docker/Containers/Microservices-data-pipeline/elasticsearch/data
       o: bind
   elasticsearch_logs:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/logs/elasticsearch
+      device: D:/Docker/Containers/Microservices-data-pipeline/logs/elasticsearch
       o: bind
   postgresql_data:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/postgresql/data
+      device: D:/Docker/Containers/Microservices-data-pipeline/postgresql/data
       o: bind
   postgresql_logs:
     driver: local
     driver_opts:
       type: none
-      device: D:/Docker/Containers/database/logs/postgresql
+      device: D:/Docker/Containers/Microservices-data-pipeline/logs/postgresql
       o: bind
