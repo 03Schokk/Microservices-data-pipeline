@@ -407,7 +407,7 @@ def create_tables():
         )
     """)
 
-    cur.execute("""
+   cur.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id UUID NOT NULL,
             week_start_date DATE NOT NULL,
@@ -420,8 +420,16 @@ def create_tables():
             PRIMARY KEY (id, week_start_date),
             FOREIGN KEY (schedule_id) REFERENCES schedule(id) ON DELETE CASCADE,
             FOREIGN KEY (student_id) REFERENCES student(id) ON DELETE CASCADE
-        ) PARTITION BY RANGE (week_start_date)
+        ) PARTITION BY RANGE (week_start_date);
     """)
+
+    # --- ДОБАВЛЯЕМ СОЗДАНИЕ ПАРТИЦИЙ ---
+    semesters_config = [
+        (date(2024, 9, 1), date(2024, 12, 31)),
+        (date(2025, 2, 1), date(2025, 6, 30)),
+        (date(2025, 9, 1), date(2025, 12, 31)),
+        (date(2026, 2, 1), date(2026, 6, 30)),
+    ]
 
     # все даты начала учебных недель
     week_starts = set()
