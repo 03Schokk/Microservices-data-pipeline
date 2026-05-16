@@ -1,64 +1,69 @@
 """
-lab1_service - main.py
+lab1_service - main.py (Updated for your ER-diagram and Lab #1 requirements)
 """
-
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
-import search
 from datetime import date
+import search  # Предполагаем, что логика запросов здесь
 from auth import verify_service_token
 
-app = FastAPI(title="Lab1 Service")
+app = FastAPI(title="Lab1 Service - Attendance & Search")
 
+# Модели данных на основе ТВОЕЙ ER-диаграммы
 class UniversityInfo(BaseModel):
     name: str
     address: str
-    website: str
+    founded_year: int # Добавили из твоей схемы
 
 class StudentReport(BaseModel):
     last_name: str
     first_name: str
-    patronymic: str
-    student_card_number: str
+    patronymic: Optional[str] = None
     email: str
-    phone: str
     group_name: str
-    specialty_name: str
-    total_scheduled: int
-    attendance_percent: float
+    # По заданию: данные о занятии, которое прогуляли
+    missed_lecture_title: str 
+    lecture_type: str # Лекция/Практика из твоей схемы
+    # Статистика
+    attendance_note: str # "Отсутствовал"
     university: Optional[UniversityInfo] = None
 
 class ReportResponse(BaseModel):
+    term: str
+    found_students_count: int
     students: List[StudentReport]
 
-# эндпоинт запуска поиска данных (защищён через verify_service_token)
 @app.post("/report", response_model=ReportResponse)
 async def report(term: str, start_date: str, end_date: str, _ = Depends(verify_service_token)):
     try:
         start = date.fromisoformat(start_date)
         end = date.fromisoformat(end_date)
-        if start > end:
-            raise ValueError("start_date must be <= end_date")
         
-        pg_conn = search.get_postgres_connection()
-        min_db, max_db = search.get_min_max_schedule_dates(pg_conn)
-        pg_conn.close()
-        if min_db is None or max_db is None:
-            raise HTTPException(status_code=404, detail="No schedule data")
+        # 1. Идем в ElasticSearch (как в твоей схеме распределения)
+        # Ищем ID лекций, которые содержат 'term' в названии или аннотации
+        lecture_ids = await search.find_lectures_by_term_in_es(term)
         
-        # Приводим даты к границам имеющихся данных
-        start_adj = max(start, min_db)
-        end_adj = min(end, max_db)
+        if not lecture_ids:
+            return ReportResponse(term=term, found_students_count=0, students=[])
 
-        data = search.generate_report(term, start_adj.isoformat(), end_adj.isoformat())
-        if not data:
-            return ReportResponse(students=[])
-        return ReportResponse(students=data)
+        # 2. Идем в PostgreSQL (таблица attendance)
+        # Ищем студентов, которые были 'Отсутствовал' на этих лекциях в период start/end
+        # ВАЖНО: учитываем партиционирование по week_start_date
+        data = search.get_absent_students_from_pg(lecture_ids, start, end)
+        
+        # 3. Добавляем данные об иерархии (из MongoDB, согласно твоей схеме)
+        # Твоя схема распределения: MongoDB хранит иерархию University-Institute-Department
+        enriched_data = await search.enrich_with_university_info(data)
+
+        return ReportResponse(
+            term=term,
+            found_students_count=len(enriched_data),
+            students=enriched_data[:10] # По заданию нужно 10 студентов
+        )
+
     except ValueError as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid date format")
     except Exception as e:
         import traceback
         traceback.print_exc()
