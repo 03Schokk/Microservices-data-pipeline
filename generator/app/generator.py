@@ -422,6 +422,21 @@ def create_tables():
             FOREIGN KEY (student_id) REFERENCES student(id) ON DELETE CASCADE
         ) PARTITION BY RANGE (week_start_date);
     """)
+    for start_d, end_d in semesters_config:
+        current = start_d
+        while current <= end_d:
+            # Вычисляем дату конца недели (через 7 дней)
+            next_week = current + timedelta(days=7)
+            partition_name = f"attendance_w{current.strftime('%Y_%m_%d')}"
+            
+            # Создаем партицию для конкретного диапазона дат
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {partition_name} 
+                PARTITION OF attendance
+                FOR VALUES FROM ('{current}') TO ('{next_week}');
+            """)
+            current = next_week
+    # ----------------------------------
 
     # --- ДОБАВЛЯЕМ СОЗДАНИЕ ПАРТИЦИЙ ---
     semesters_config = [
