@@ -407,36 +407,42 @@ def create_tables():
         )
     """)
 
-   cur.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
+  # 1. Удаляем старое, чтобы не было конфликтов при перезапуске
+    cur.execute("DROP TABLE IF EXISTS attendance CASCADE;")
+
+    # 2. Создаем основную (родительскую) таблицу
+    # Обрати внимание: PRIMARY KEY должен включать колонку партиционирования
+    cur.execute("""
+        CREATE TABLE attendance (
             id UUID NOT NULL,
             week_start_date DATE NOT NULL,
             schedule_id UUID NOT NULL,
             student_id UUID NOT NULL,
             marked_at TIMESTAMP,
-            marked_by VARCHAR(300),
             note VARCHAR(500),
-            created_at TIMESTAMP DEFAULT NOW(),
             PRIMARY KEY (id, week_start_date),
             FOREIGN KEY (schedule_id) REFERENCES schedule(id) ON DELETE CASCADE,
             FOREIGN KEY (student_id) REFERENCES student(id) ON DELETE CASCADE
         ) PARTITION BY RANGE (week_start_date);
     """)
-    for start_d, end_d in semesters_config:
-        current = start_d
-        while current <= end_d:
-            # Вычисляем дату конца недели (через 7 дней)
-            next_week = current + timedelta(days=7)
-            partition_name = f"attendance_w{current.strftime('%Y_%m_%d')}"
-            
-            # Создаем партицию для конкретного диапазона дат
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS {partition_name} 
-                PARTITION OF attendance
-                FOR VALUES FROM ('{current}') TO ('{next_week}');
-            """)
-            current = next_week
-    # ----------------------------------
+
+    # 3. Генерируем партиции на 2 года вперед (по неделям)
+    # Начинаем с августа 2024, чтобы захватить сентябрь
+    start_date = date(2024, 8, 26) 
+    end_date = date(2026, 7, 1)
+    
+    current = start_date
+    while current <= end_date:
+        next_week = current + timedelta(days=7)
+        # Имя партиции: attendance_2024_09_01
+        partition_name = f"attendance_{current.strftime('%Y_%m_%d')}"
+        
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {partition_name} 
+            PARTITION OF attendance
+            FOR VALUES FROM ('{current}') TO ('{next_week}');
+        """)
+        current = next_week
 
     # --- ДОБАВЛЯЕМ СОЗДАНИЕ ПАРТИЦИЙ ---
     semesters_config = [
