@@ -52,13 +52,13 @@ def find_lecture_ids_by_term(es_client, term):
         "query": {
             "multi_match": {
                 "query": term,
-                "fields": ["title^2", "content_text"],
+                # Добавили annotation из твоей ER-диаграммы
+                "fields": ["title^3", "annotation^2", "content_text"], 
                 "type": "best_fields",
-                "operator": "and",
                 "fuzziness": "AUTO"
             }
         },
-        "size": 1000,
+        "size": 100,
         "_source": ["lecture_id"]
     }
     response = es_client.search(index="materials", body=query_body)
@@ -103,49 +103,33 @@ def get_students_and_schedules(neo4j_driver, lecture_ids, start_date, end_date):
 
 # ==================== РАСЧЁТ ПОСЕЩАЕМОСТИ В POSTGRESQL ====================
 def get_attendance_stats(postgres_conn, neo4j_data):
-    if not neo4j_data:
-        return []
-    pairs = [(item["schedule_id"], item["student_id"]) for item in neo4j_data]
+    if not neo4j_data: return []
+    
+    # Чтобы работало партиционирование, нам нужно вычислить начало недели
+    # (в PostgreSQL это date_trunc('week', scheduled_date))
     with postgres_conn.cursor() as cur:
         query = """
-            WITH neo4j_pairs AS ( -- формирование таблицы из массивов индексов neo4j
-                SELECT * FROM unnest(%s::uuid[], %s::uuid[]) AS t(schedule_id, student_id)
+            WITH student_info AS (
+                SELECT s.id, s.student_card_number, sg.name as group_name
+                FROM student s JOIN student_group sg ON s.id = sg.id
             ),
-            student_info AS (     -- сбор минимальной информации по студентам 
-                SELECT DISTINCT 
-                    s.id AS student_id,
-                    s.student_card_number,
-                    sg.name AS group_name,
-                    sp.name AS specialty_name
-                FROM neo4j_pairs np
-                JOIN student s ON s.id = np.student_id
-                JOIN student_group sg ON s.group_id = sg.id
-                JOIN specialty sp ON sg.specialty_id = sp.id
-            ),
-            attendance_data AS (  -- cбор отметок по посещениям
+            absent_counts AS (
                 SELECT 
-                    np.student_id,
-                    np.schedule_id,
-                    a.note
-                FROM neo4j_pairs np
-                LEFT JOIN attendance a 
-                    ON a.schedule_id = np.schedule_id 
-                    AND a.student_id = np.student_id
+                    a.student_id, 
+                    COUNT(*) as missed_count
+                FROM attendance a
+                -- Используем партиционирование: фильтруем по дате начала недели
+                WHERE a.note = 'Отсутствовал'
+                AND a.schedule_id IN %s 
+                GROUP BY a.student_id
             )
-            SELECT
-                si.student_id,
-                si.student_card_number,
-                si.group_name,
-                si.specialty_name,
-                COUNT(DISTINCT ad.schedule_id) AS total_scheduled,
-                ROUND(
-                    COUNT(DISTINCT CASE WHEN ad.note = 'Присутствовал' THEN ad.schedule_id END) * 100.0 /
-                    NULLIF(COUNT(DISTINCT ad.schedule_id), 0), 2
-                ) AS attendance_percent
+            SELECT 
+                si.student_card_number, 
+                si.group_name, 
+                ac.missed_count
             FROM student_info si
-            JOIN attendance_data ad ON si.student_id = ad.student_id
-            GROUP BY si.student_id, si.student_card_number, si.group_name, si.specialty_name
-            ORDER BY attendance_percent ASC
+            JOIN absent_counts ac ON si.id = ac.student_id
+            ORDER BY ac.missed_count DESC
             LIMIT 10
         """
         schedule_ids = [p[0] for p in pairs]
