@@ -222,24 +222,35 @@ def generate_schedules_for_semester(start_date, end_date, lecture_ids, group_ids
         current_date += timedelta(days=7)
     return schedules
 
-def generate_attendance(schedules, students):
-    attendance = []
-    students_by_group = {}
-    for s in students:
-        students_by_group.setdefault(s['group_id'], []).append(s)
-    for schedule in schedules:
-        group_students = students_by_group.get(schedule['group_id'], [])
-        for student in group_students:
-            attendance.append({
-                'id': uuid.uuid4(),
-                'week_start_date': schedule['week_start_date'],
-                'schedule_id': schedule['id'],
-                'student_id': student['id'],
-                'marked_at': datetime.combine(schedule['scheduled_date'], schedule['start_time']),
-                'marked_by': schedule['teacher_name'],
-                'note': 'Присутствовал' if random.random() > 0.20 else 'Отсутствовал'
-            })
-    return attendance
+# 1. Сначала вставляешь саму функцию (можно в начало файла после импортов)
+def insert_attendance(cur, att_id, schedule_date, schedule_id, student_id, note):
+    # Находим понедельник той недели, к которой относится занятие
+    # Это критически важно для работы PARTITION BY RANGE (week_start_date)
+    week_start = schedule_date - timedelta(days=schedule_date.weekday())
+    
+    cur.execute("""
+        INSERT INTO attendance (id, week_start_date, schedule_id, student_id, note)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (att_id, week_start, schedule_id, student_id, note))
+
+# 2. А здесь пример того, как она вызывается в основном цикле генерации
+def generate_all_data():
+    # ... (подключение к БД, получение списка студентов и расписания)
+    
+    for sch in all_schedules:
+        for std in students_in_group:
+            # Решаем, пришел студент или нет (случайно)
+            status = "Присутствовал" if random.random() > 0.2 else "Отсутствовал"
+            
+            # ВЫЗОВ НАШЕЙ ФУНКЦИИ
+            insert_attendance(
+                cur, 
+                uuid.uuid4(),    # id записи
+                sch.date,        # дата занятия из расписания
+                sch.id,          # id занятия
+                std.id,          # id студента
+                status           # статус
+            )
 
 # ------------------ Очистка ------------------
 def clear_database():
